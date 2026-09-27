@@ -1,0 +1,10 @@
+node_modules/
+bin/
+obj/
+dist/
+.env
+rooms.json
+*.user
+*.log
+.local/
+.private/
