@@ -11,15 +11,16 @@ const deadline = setTimeout(() => { console.error('Remote smoke test timeout'); 
 async function connect(role, key) {
   const ws = new WebSocket(url, { handshakeTimeout: 5000 }); clients.push(ws);
   await once(ws, 'open');
-  return { ws, hello: () => ws.send(JSON.stringify({type:'hello',v:1,room:room.name,role,key})) };
+  return { ws, hello: () => ws.send(JSON.stringify({type:'hello',v:2,room:room.name,role,key})) };
 }
 try {
   const health = await fetch(url.replace('wss:', 'https:').replace('/coop', '/healthz'));
   assert.equal(health.status, 200); assert.deepEqual(await health.json(), {ok:true});
   const wrong = await connect('viewer', 'invalid'.repeat(8)); const rejected = once(wrong.ws, 'close'); wrong.hello(); assert.equal((await rejected)[0], 1008);
   const host = await connect('host', room.hostKey); const ready = once(host.ws, 'message'); host.hello(); assert.equal(JSON.parse((await ready)[0]).type, 'ready');
-  const second = await connect('host', room.hostKey); const duplicate = once(second.ws, 'close'); second.hello(); assert.equal((await duplicate)[0], 1008);
+  const replaced = once(host.ws, 'close'); const second = await connect('host', room.hostKey); const takeover = once(second.ws, 'message'); second.hello();
+  assert.equal(JSON.parse((await takeover)[0]).type, 'ready'); assert.equal((await replaced)[0], 4001);
   const viewer = await connect('viewer', room.viewerKey); const viewerReady = once(viewer.ws, 'message'); viewer.hello(); assert.equal(JSON.parse((await viewerReady)[0]).type, 'ready');
   const denied = once(viewer.ws, 'close'); viewer.ws.send(JSON.stringify({type:'snapshot'})); assert.equal((await denied)[0], 1008);
-  console.log('PASS: public certificate validation, HTTPS health, wrong-key rejection, authenticated host/viewer, duplicate host rejection, viewer publish rejection');
+  console.log('PASS: public certificate validation, HTTPS health, wrong-key rejection, authenticated host/viewer, host takeover by newer connection, viewer publish rejection');
 } finally { clearTimeout(deadline); for (const ws of clients) ws.terminate(); }

@@ -1,9 +1,10 @@
+export const PROTOCOL = 2;
 const bound = 7 * 86400 * 10000000;
 const text = (s, n = 200) => typeof s === 'string' && s.length <= n && !/[\x00-\x1f]/.test(s);
 const ticks = n => n === null || (Number.isSafeInteger(n) && Math.abs(n) <= bound);
 const id = s => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(s);
 export function validSnapshot(s) {
-  if (!s || s.type !== 'snapshot' || s.v !== 1 || !Number.isSafeInteger(s.seq) || s.seq < 0 ||
+  if (!s || s.type !== 'snapshot' || s.v !== PROTOCOL || !Number.isSafeInteger(s.seq) || s.seq < 0 ||
       !id(s.runId) || !id(s.attemptId) || !text(s.game) || !text(s.category) ||
       !Number.isSafeInteger(s.attempts) || s.attempts < 0 ||
       !['NotRunning', 'Running', 'Paused', 'Ended'].includes(s.phase) ||
@@ -23,4 +24,9 @@ export function validSnapshot(s) {
   }
   if (s.phase === 'Ended' && (s.segments.at(-1).splitRT !== s.realTicks || s.segments.at(-1).splitGT !== s.gameTicks)) return false;
   return true;
+}
+// A tick only updates the running clock of the host connection's latest snapshot.
+export function validTick(t) {
+  return !!t && t.type === 'tick' && t.v === PROTOCOL && Number.isSafeInteger(t.seq) && t.seq >= 0 &&
+    ticks(t.realTicks) && ticks(t.gameTicks) && typeof t.gamePaused === 'boolean';
 }

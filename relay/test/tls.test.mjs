@@ -37,7 +37,7 @@ test('TLS authenticates WSS, rotates certificates without disconnecting and reta
   assert.equal(await health(a.ca), 200);
   await assert.rejects(health(b.ca));
   const ws = new WebSocket(`wss://${base}/coop`, { ca: a.ca }); await once(ws, 'open');
-  ws.send(JSON.stringify({ type: 'hello', v: 1, room: 'test', role: 'host', key: 'h'.repeat(32) }));
+  ws.send(JSON.stringify({ type: 'hello', v: 2, room: 'test', role: 'host', key: 'h'.repeat(32) }));
   assert.equal(JSON.parse((await once(ws, 'message'))[0]).type, 'ready');
   await writeFile(file, b.pem); assert.equal(await renewal.refresh(), true);
   assert.equal(await health(b.ca), 200); await assert.rejects(health(a.ca));

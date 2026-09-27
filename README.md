@@ -15,9 +15,10 @@ Viewer LiveSplit + Coop component ─WSS─┘
 
 - Host authority: separate publish and view keys; one publisher per room.
 - Real Time and optional Game Time, exact completed split/final values, PB/best-segment/comparison values.
-- Complete snapshots: late joining and reconnecting clients receive previous checkpoints too.
+- Complete snapshots: late joining and reconnecting clients receive previous checkpoints too. Between changes only a small clock tick is sent.
 - Start, finish, reset, pause, resume, skipped splits and undo are represented by the current state, rather than replayed button presses.
-- Viewer connections create a temporary run; disconnect restores the original local splits. No automatic file writes or PB updates.
+- Viewer connections create a temporary run; disconnect restores the original local splits. No automatic file writes or PB updates. Loading or editing splits while viewing stops viewer mode instead of writing host data into them.
+- Viewer mode refuses to start, and stops, while a Scriptable Auto Splitter/Auto Splitting Runtime component or registered autosplitter is active.
 - Visible connection status. A lost/stale connection freezes the viewer within 1.5 seconds.
 - Outbound connections only on player PCs. No public LiveSplit control port.
 - Access keys in saved layouts use Windows DPAPI, tied to the Windows user and machine.
@@ -83,8 +84,8 @@ For an owned external deployment, the native and trio scripts accept `-RelayAddr
 - This is a **viewer**, not a second authoritative run recorder. Attempt/segment history, icons, game-specific metadata, layout files and scripts are not sent. PBs, best segments and named comparison values are sent; history-dependent components may differ.
 - Running digits interpolate from received snapshots (four per second plus changes), so they can trail the host by network delay. Completed checkpoint and final values are copied exactly, with 100 ns tick precision.
 - No unattended startup, automatic viewer result export, room-creation UI or persistent server history yet. The host's saved `.lss` remains the authoritative record.
-- Restarting the relay loses its in-memory cache. The connected host republishes after reconnection. Host handover uses the room's publish key and requires the previous host connection to end.
-- Maximum 256 splits, 32 comparisons per segment, 256 KiB per message, seven-day magnitude for times, 12 participants per room and 64 connections per relay.
+- Restarting the relay loses its in-memory cache. The connected host republishes after reconnection. A new connection with the room's publish key replaces the current host connection; the replaced component stops instead of reconnecting.
+- Maximum 256 splits, 32 comparisons per segment, 256 KiB per message, seven-day magnitude for times, 12 participants per room (one host slot is always reserved) and 64 authenticated connections per relay.
 - The component follows state directly and does not replay local timer-control events. Other plugins that depend on those events need separate compatibility testing.
 - Use trusted teammates and a TLS endpoint. A view key is access to the room's timing data, not a user account. The prototype has no per-person revocation; rotate the room key instead.
 

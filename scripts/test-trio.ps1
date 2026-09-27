@@ -30,7 +30,13 @@ if($endpoint -notmatch '^ws://127\.0\.0\.1:\d+/coop$'){throw 'Relay startup fail
 Add-Type -AssemblyName System.Security
 $copies=@();$processes=@();$checks=New-Object Collections.Generic.List[string]
 $script:commandId=0
-function Read-State([int]$index) { Get-Content -LiteralPath (Join-Path $copies[$index] 'ui-state.json') -Raw -Encoding UTF8 | ConvertFrom-Json }
+function Read-State([int]$index) {
+    # The driver atomically replaces this file every 150 ms. Allow replacement while reading.
+    $path=Join-Path $copies[$index] 'ui-state.json'
+    $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    $reader=New-Object IO.StreamReader($stream,[Text.Encoding]::UTF8)
+    try { return ($reader.ReadToEnd() | ConvertFrom-Json) } finally { $reader.Dispose() }
+}
 function Command([int]$index,[string]$action,[double]$seconds=0,[string]$name='capture') {
     $script:commandId++
     $json=@{id=$script:commandId;action=$action;seconds=$seconds;name=$name} | ConvertTo-Json -Compress

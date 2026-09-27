@@ -18,7 +18,7 @@ namespace LiveSplit.Coop {
     }
     public sealed class Snapshot {
         public string type="snapshot";
-        public int v=1;
+        public int v=RelayConnection.Protocol;
         public long seq;
         public string runId, attemptId, game, category, phase, timingMethod, comparison;
         public int attempts, index;
@@ -42,11 +42,18 @@ namespace LiveSplit.Coop {
                 }).ToArray()
             };
         }
+        public Snapshot WithTimes(long seq,long? realTicks,long? gameTicks,bool gamePaused) {
+            var copy=(Snapshot)MemberwiseClone();
+            copy.seq=seq;copy.realTicks=realTicks;copy.gameTicks=gameTicks;copy.gamePaused=gamePaused;
+            return copy;
+        }
+        // Everything except the running clock; when this is unchanged a tick is enough.
+        public string StructureKey() { return RelayConnection.Json().Serialize(WithTimes(0,null,null,false)); }
         const long Limit=6048000000000L;
         static bool T(long? t) { return !t.HasValue || (t>=-Limit && t<=Limit); }
         static bool Text(string t,int max) { return t!=null && t.Length<=max && !t.Any(char.IsControl); }
         public bool Valid() {
-            if(type!="snapshot" || v!=1 || seq<0 || !Text(runId,80) || !Text(attemptId,80) ||
+            if(type!="snapshot" || v!=RelayConnection.Protocol || seq<0 || !Text(runId,80) || !Text(attemptId,80) ||
                !Text(game,200) || !Text(category,200) || !Text(comparison,100) || attempts<0 ||
                !T(offsetTicks) || !T(realTicks) || !T(gameTicks) || segments==null || segments.Length<1 || segments.Length>256 ||
                !new[]{"NotRunning","Running","Paused","Ended"}.Contains(phase) ||
@@ -66,22 +73,28 @@ namespace LiveSplit.Coop {
         readonly IRun original;
         readonly TimingMethod method;
         readonly string comparison;
+        IRun expected;
         string runId;
         Snapshot latest;
         public Mirror(LiveSplitState state) {
             if(state.CurrentPhase!=TimerPhase.NotRunning) throw new InvalidOperationException("Stop/reset the local timer before joining as viewer.");
-            this.state=state;original=state.Run;method=state.CurrentTimingMethod;comparison=state.CurrentComparison;
+            this.state=state;original=expected=state.Run;method=state.CurrentTimingMethod;comparison=state.CurrentComparison;
+        }
+        // Loading or editing splits replaces state.Run. Never write host data into a run the mirror does not own.
+        void EnsureOwned() {
+            if(!Object.ReferenceEquals(state.Run,expected)) throw new InvalidOperationException("Splits were changed locally; viewer mode stopped.");
         }
         static Time Time(long? r,long? g) { return new Time(r.HasValue?(TimeSpan?)TimeSpan.FromTicks(r.Value):null,g.HasValue?(TimeSpan?)TimeSpan.FromTicks(g.Value):null); }
         public void Adopt(Snapshot s) {
             if(!s.Valid()) throw new ArgumentException("Invalid snapshot");
+            EnsureOwned();
             bool rebuild=runId!=s.runId || latest==null || latest.segments.Length!=s.segments.Length;
             if(rebuild) {
                 var run=new Run(new StandardComparisonGeneratorsFactory());
                 foreach(var seg in s.segments) run.Add(new Segment(seg.name));
                 // No local file path, autosplitter, icons, scripts or history are imported.
                 run.FilePath=null;run.LayoutPath=null;
-                state.Run=run;runId=s.runId;
+                state.Run=expected=run;runId=s.runId;
             }
             state.Run.GameName=s.game;state.Run.CategoryName=s.category;
             state.Run.AttemptCount=s.attempts;state.Run.Offset=TimeSpan.FromTicks(s.offsetTicks);
@@ -101,8 +114,15 @@ namespace LiveSplit.Coop {
             Render(0,false);
             state.CallRunManuallyModified();
         }
+        // Clock-only update: no run rebuild and no RunManuallyModified event.
+        public void Advance(Snapshot s) {
+            if(latest==null || s.runId!=latest.runId || s.attemptId!=latest.attemptId) { Adopt(s);return; }
+            if(!s.Valid()) throw new ArgumentException("Invalid snapshot");
+            EnsureOwned();latest=s;
+        }
         public void Render(double elapsedMs,bool stale) {
             if(latest==null) return;
+            EnsureOwned();
             var phase=(TimerPhase)Enum.Parse(typeof(TimerPhase),latest.phase);
             long elapsed=phase==TimerPhase.Running?(long)(Math.Max(0,Math.Min(elapsedMs,1500))*10000):0;
             long r=(latest.realTicks ?? 0)+elapsed;
@@ -120,8 +140,10 @@ namespace LiveSplit.Coop {
             state.CurrentTimingMethod=(TimingMethod)Enum.Parse(typeof(TimingMethod),latest.timingMethod);
         }
         public void Dispose() {
-            state.Run=original;state.CurrentPhase=TimerPhase.NotRunning;state.CurrentSplitIndex=-1;
-            state.CurrentTimingMethod=method;state.CurrentComparison=comparison;
+            // Splits the user loaded while viewing stay loaded; only the mirror's own run is swapped back.
+            if(Object.ReferenceEquals(state.Run,expected)) { state.Run=original;state.CurrentComparison=comparison; }
+            state.CurrentPhase=TimerPhase.NotRunning;state.CurrentSplitIndex=-1;
+            state.CurrentTimingMethod=method;
             state.IsGameTimePaused=false;state.IsGameTimeInitialized=false;
             state.CallRunManuallyModified();
         }

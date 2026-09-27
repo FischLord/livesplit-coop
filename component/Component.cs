@@ -34,7 +34,9 @@ namespace LiveSplit.Coop {
         Mirror mirror;
         IRun publishingRun;
         string runId=Guid.NewGuid().ToString("N"),attemptId=Guid.NewGuid().ToString("N"),role="",label="Coop: disconnected";
-        long sequence,lastPublished,lastReceived;
+        long sequence,lastPublished,lastReceived,lastGuard;
+        int publishedGeneration=-1;
+        string publishedStructure;
         double frozenElapsed=-1;
         long initialAge;
         bool dirty=true,hasSnapshot;
@@ -47,18 +49,23 @@ namespace LiveSplit.Coop {
         void Changed(object sender,EventArgs e) { dirty=true; }
         void Started(object sender,EventArgs e) { attemptId=Guid.NewGuid().ToString("N");dirty=true; }
         void Reset(object sender,TimerPhase phase) { attemptId=Guid.NewGuid().ToString("N");dirty=true; }
+        static readonly string[] AutoSplitterAssemblies={"LiveSplit.ScriptableAutoSplit","LiveSplit.AutoSplittingRuntime"};
+        // Scriptable Auto Splitter is ASLComponent, Auto Splitting Runtime is ASRComponent.
+        public static bool IsAutoSplitter(Type type) {
+            return type.Name=="ASLComponent" || type.Name=="ASRComponent" || type.Name.IndexOf("AutoSplit",StringComparison.OrdinalIgnoreCase)>=0 ||
+                AutoSplitterAssemblies.Contains(type.Assembly.GetName().Name,StringComparer.OrdinalIgnoreCase);
+        }
+        static void RequireNoAutoSplitter(LiveSplitState state) {
+            if((state.Run.AutoSplitter!=null && state.Run.AutoSplitter.IsActivated) || state.Layout.Components.Any(c=>IsAutoSplitter(c.GetType())))
+                throw new InvalidOperationException("Viewer mode requires a layout without an active autosplitter or Scriptable Auto Splitter component.");
+        }
         public void Connect() {
             Disconnect();
             try {
                 role=settings.Role;
-                if(role=="viewer") {
-                    if((state.Run.AutoSplitter!=null && state.Run.AutoSplitter.IsActivated) ||
-                        state.Layout.Components.Any(c=>c.GetType().Name.IndexOf("AutoSplit",StringComparison.OrdinalIgnoreCase)>=0))
-                        throw new InvalidOperationException("Viewer mode requires a layout without an active autosplitter or Scriptable Auto Splitter component.");
-                    mirror=new Mirror(state);
-                }
+                if(role=="viewer") { RequireNoAutoSplitter(state);mirror=new Mirror(state); }
                 connection=new RelayConnection(settings.Address,settings.Room,role,settings.Key);
-                connection.Start();dirty=true;hasSnapshot=false;frozenElapsed=-1;
+                connection.Start();dirty=true;hasSnapshot=false;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
                 SetStatus("Connecting",Color.Goldenrod);
             } catch(Exception e) { Disconnect();SetStatus(e.Message,Color.IndianRed); }
         }
@@ -76,13 +83,20 @@ namespace LiveSplit.Coop {
                         if(connection.Ready && (dirty || watch.ElapsedMilliseconds-lastPublished>=250)) {
                             var snapshot=Snapshot.Capture(state,runId,attemptId,++sequence);
                             if(!snapshot.Valid()) throw new InvalidOperationException("Run exceeds supported limits or contains unsupported metadata.");
-                            connection.Publish(snapshot);dirty=false;lastPublished=watch.ElapsedMilliseconds;
+                            // Complete snapshots only when something besides the clock changed or after a reconnect.
+                            int generation=connection.Generation;string structure=snapshot.StructureKey();
+                            bool complete=generation!=publishedGeneration || structure!=publishedStructure;
+                            if(connection.Publish(snapshot,complete,generation) && complete) { publishedGeneration=generation;publishedStructure=structure; }
+                            dirty=false;lastPublished=watch.ElapsedMilliseconds;
                         }
                         SetStatus(connection.Ready?"Host connected":connection.Status,connection.Ready?Color.MediumAquamarine:Color.IndianRed);
                     } else {
+                        // An autosplitter added while viewing would fight the mirrored timer.
+                        if(watch.ElapsedMilliseconds-lastGuard>=1000) { lastGuard=watch.ElapsedMilliseconds;RequireNoAutoSplitter(state); }
                         var delivery=connection.Take();
                         if(delivery!=null) {
-                            mirror.Adopt(delivery.snapshot);hasSnapshot=true;lastReceived=watch.ElapsedMilliseconds;
+                            if(delivery.structural) mirror.Adopt(delivery.snapshot); else mirror.Advance(delivery.snapshot);
+                            hasSnapshot=true;lastReceived=watch.ElapsedMilliseconds;
                             initialAge=delivery.ageMs;frozenElapsed=delivery.live?-1:Math.Min(initialAge,1500);
                         }
                         bool live=connection.Ready && connection.HostOnline && hasSnapshot && watch.ElapsedMilliseconds-lastReceived+initialAge<1500;
