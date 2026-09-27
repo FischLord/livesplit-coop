@@ -2,7 +2,7 @@
 
 One player measures the run. Teammates see the same splits in their own LiveSplit windows — through a relay you host yourself, without a VPN or a desktop companion app.
 
-**Status: 0.1.0 field-test prototype.** Built and tested with Windows LiveSplit 1.8.34; deployed on a Linux VPS using rootless Docker and a publicly trusted TLS endpoint. Local three-window tests and native .NET clients over the public endpoint passed. A complete real game run remains untested.
+**Status: 0.1.0-beta.1 — public testing beta.** Built and tested with Windows LiveSplit 1.8.34; deployed on a Linux VPS using rootless Docker and a publicly trusted TLS endpoint. Local three-window tests and native .NET clients over the public endpoint passed. A complete real game run remains untested.
 
 ```text
 Host LiveSplit + Coop component ──WSS──┐
@@ -23,6 +23,10 @@ Viewer LiveSplit + Coop component ─WSS─┘
 - Access keys in saved layouts use Windows DPAPI, tied to the Windows user and machine.
 
 ## Build the component (Windows)
+
+To use a prebuilt beta, extract `LiveSplit.Coop-v0.1.0-beta.1.zip` and copy its `Components/LiveSplit.Coop.dll` into your LiveSplit installation. This is an **add-on**, not a complete LiveSplit distribution. Windows 10/11 with .NET Framework 4.8 and LiveSplit 1.8.34 are the tested client environment. A group member must operate a relay; there is no bundled public server or account. See the [quick start](docs/quickstart.md).
+
+The public archives contain no game autosplitters, personal splits/PBs, live room keys or hosted service credentials. Bring your own host splits and autosplitter. The relay is game-independent; RV There Yet was the initial development use case.
 
 Use Windows PowerShell 5.1 and an installed LiveSplit release. No .NET SDK or Visual Studio installation is required; the build uses the Windows .NET Framework compiler.
 
@@ -85,3 +89,5 @@ For an owned external deployment, the native and trio scripts accept `-RelayAddr
 - Use trusted teammates and a TLS endpoint. A view key is access to the room's timing data, not a user account. The prototype has no per-person revocation; rotate the room key instead.
 
 [Deutsche Anleitung](docs/setup.de.md) · [Protocol](docs/protocol.md) · [Deployment](docs/deployment.md) · [License and provenance](THIRD_PARTY.md)
+
+For beta feedback, open an issue with client/relay versions, host/viewer role, timing method, expected behavior and reproducible steps. Remove access keys and private room data from screenshots/logs. See [release notes](docs/releases/v0.1.0-beta.1.md).

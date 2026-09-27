@@ -11,6 +11,7 @@ using LiveSplit.UI.Components;
 
 [assembly: ComponentFactory(typeof(LiveSplit.Coop.Factory))]
 [assembly: System.Reflection.AssemblyVersion("0.1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("0.1.0-beta.1")]
 [assembly: System.Reflection.AssemblyTitle("LiveSplit Coop")]
 
 namespace LiveSplit.Coop {

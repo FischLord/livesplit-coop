@@ -8,3 +8,7 @@ rooms.json
 *.log
 .local/
 .private/
+*.private.json
+*.pem
+*.key
+Coop-Pakete/
