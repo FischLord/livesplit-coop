@@ -1,0 +1,30 @@
+services:
+  relay:
+    build: ./relay
+    restart: unless-stopped
+    # UID 0 in a ROOTLESS engine maps to the unprivileged deployment account.
+    user: "0:0"
+    ports:
+      - "8443:8787"
+    environment:
+      TLS_PEM_FILE: /run/tls/server.pem
+      TLS_SERVER_NAME: ${TLS_SERVER_NAME:?Set the certificate DNS name}
+    volumes:
+      - ./.private/rooms.json:/run/secrets/rooms.json:ro
+      - ./.private/tls:/run/tls:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [CMD, node, -e, "require('https').get({hostname:'127.0.0.1',port:8787,servername:process.env.TLS_SERVER_NAME,path:'/healthz'},r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

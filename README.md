@@ -2,7 +2,7 @@
 
 One player measures the run. Teammates see the same splits in their own LiveSplit windows — through a relay you host yourself, without a VPN or a desktop companion app.
 
-**Status: 0.1.0 local prototype.** Built and tested with Windows LiveSplit 1.8.34. Not yet tested in a complete game run, over a public TLS endpoint, or deployed to a production server.
+**Status: 0.1.0 field-test prototype.** Built and tested with Windows LiveSplit 1.8.34; deployed on a Linux VPS using rootless Docker and a publicly trusted TLS endpoint. Local three-window tests and native .NET clients over the public endpoint passed. A complete real game run remains untested.
 
 ```text
 Host LiveSplit + Coop component ──WSS──┐
@@ -45,7 +45,7 @@ npm run room -- coop
 npm start
 ```
 
-The key generator creates `rooms.json` and refuses to overwrite an existing file. Keep `hostKey` private; give teammates only `viewerKey`. This file is gitignored. The local endpoint is `ws://127.0.0.1:8787/coop`; plain `ws://` is accepted by the component **only for loopback development**. Remote players use `wss://your-domain/coop` through your TLS reverse proxy.
+The key generator creates `rooms.json` and refuses to overwrite an existing file. Keep `hostKey` private; give teammates only `viewerKey`. This file is gitignored. The local endpoint is `ws://127.0.0.1:8787/coop`; plain `ws://` is accepted by the component **only for loopback development**. Remote players use WSS through a TLS reverse proxy, or direct TLS on a separate port using `compose.tls.yaml` and `TLS_PEM_FILE`.
 
 For Linux/container deployment, see [deployment](docs/deployment.md). Docker is optional; the relay can also run as a restricted service account. No hosted account, third-party relay or VPN is used.
 
@@ -61,6 +61,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-native.ps1 
 ```
 
 The native tests start an isolated loopback relay, connect real .NET WebSocket clients and exercise the installed LiveSplit timing model. They do not connect to a game or change live layouts/split files. See [verification](docs/verification.md).
+
+To exercise three actual LiveSplit windows with a copy of an existing dashboard:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-trio.ps1 -LiveSplitPath 'C:\path\to\LiveSplit' -LayoutPath 'C:\path\to\dashboard.lsl'
+```
+
+This creates three disposable installations under `.local`, disables autosplitters/hotkeys in those copies, runs a clearly labeled simulated attempt and captures each window. It closes its processes afterwards. Original split/layout/settings files are hash-checked. `tests/UiDriver.cs` is a test fixture only and is never part of the distributed component DLL.
+
+For an owned external deployment, the native and trio scripts accept `-RelayAddress wss://your-domain:8443/coop -RoomsFile C:\private\rooms.json`. This temporarily occupies the configured host slot and publishes sample data. Run only when teammates are disconnected. The UI test additionally requires an unlocked interactive desktop; the native test does not.
+
+`scripts/Start-Coop.ps1` and `.cmd` are portable-package launcher templates. They consume `Paket.json` (profile list) and `Zugang.private.json` (address, room, role, key), resolve package paths and encrypt the key for the recipient's Windows user. These private packages are not public release archives. See [portable packaging](docs/portable.md).
 
 ## Current limits
 

@@ -25,7 +25,8 @@ public static class NativeTests {
     static Delivery Receive(RelayConnection c,long seq) {
         Delivery result=null;Wait(()=>{var next=c.Take();if(next!=null && next.snapshot.seq==seq)result=next;return result!=null;},"snapshot "+seq);return result;
     }
-    public static void Run(string url) {
+    public static void Run(string url) { Run(url,"test",new string('h',32),new string('v',32)); }
+    public static void Run(string url,string room,string hostKey,string viewerKey) {
         var host=State();var model=new TimerModel { CurrentState=host };model.Start();
         host.AdjustedStartTime=TimeStamp.Now-TimeSpan.FromSeconds(10);model.Split();
         host.AdjustedStartTime=TimeStamp.Now-TimeSpan.FromSeconds(20);model.Split();
@@ -62,14 +63,14 @@ public static class NativeTests {
         }
         Check(Object.ReferenceEquals(viewer.Run,original) && original[0].PersonalBestSplitTime.RealTime==before.RealTime,"disconnect restores untouched original run");
         Check(viewer.CurrentPhase==TimerPhase.NotRunning,"restored local timer is idle");
-        using(var publisher=new RelayConnection(url,"test","host",new string('h',32)))
-        using(var a=new RelayConnection(url,"test","viewer",new string('v',32)))
-        using(var b=new RelayConnection(url,"test","viewer",new string('v',32))) {
+        using(var publisher=new RelayConnection(url,room,"host",hostKey))
+        using(var a=new RelayConnection(url,room,"viewer",viewerKey))
+        using(var b=new RelayConnection(url,room,"viewer",viewerKey)) {
             publisher.Start();a.Start();b.Start();Wait(()=>publisher.Ready && a.Ready && b.Ready,"three native clients");
             s=Snapshot.Capture(host,"run1","attempt3",7);publisher.Publish(s);
             var sa=Receive(a,7).snapshot;var sb=Receive(b,7).snapshot;
             Check(sa.realTicks==s.realTicks && sb.realTicks==s.realTicks,"one host reaches two native WebSocket viewers");
-            using(var late=new RelayConnection(url,"test","viewer",new string('v',32))) {
+            using(var late=new RelayConnection(url,room,"viewer",viewerKey)) {
                 late.Start();var replay=Receive(late,7);Check(replay.snapshot.index==s.index,"late native client receives cached snapshot");
             }
             var socketField=typeof(RelayConnection).GetField("socket",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);

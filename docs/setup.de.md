@@ -25,8 +25,12 @@ Für einen lokalen Test nutzt ihr `ws://127.0.0.1:8787/coop` auf demselben PC. B
 
 ## Schlüssel
 
-`hostKey` darf nur der Spielhost haben. `viewerKey` ist für die Mitspieler. Gespeicherte Layouts enthalten den Schlüssel verschlüsselt für dieses Windows-Konto auf diesem PC. Beim Weitergeben eines Layouts muss die andere Person ihren Schlüssel selbst eintragen.
+`hostKey` darf nur der Spielhost haben. `viewerKey` ist für die Mitspieler. Gespeicherte Layouts enthalten den Schlüssel verschlüsselt für dieses Windows-Konto auf diesem PC. Beim Weitergeben eines einzelnen Layouts muss die andere Person ihren Schlüssel selbst eintragen. Ein vorbereitetes portables Paket erledigt dies über `Start-Coop.cmd` aus seiner privaten Zugangsdatei; solche Pakete nur innerhalb der eigenen Gruppe weitergeben.
 
 ## Noch ausstehend
 
-Die automatisierten lokalen Tests sind durchgeführt. Ein echter Duo-/Trio-Test, ein öffentlicher TLS-Endpunkt und ein vollständiger Spielrun stehen noch aus. Der bestehende VPS wurde weder per SSH geprüft noch verändert; vor der Installation müssen nginx-Einbindung und Zertifikatserneuerung anhand seines tatsächlichen Zustands geplant werden.
+Die automatisierten lokalen Tests und ein Test mit drei echten LiveSplit-Fenstern und Dashboard-Kopien sind durchgeführt. Start, Splits, Pause, Wiederverbindung, Zieleinlauf und Reset wurden mit Beispieldaten geprüft. Die Originaldateien blieben unverändert.
+
+Am 27.09.2026 wurde nach Freigabe ein separater Relay auf einem Linux-VPS mit rootless Docker und direktem TLS auf Port 8443 eingerichtet. Die vorhandenen Webapps auf 80/443 blieben unverändert. 24 native Prüfungen mit einem Host und zwei Viewern bestanden auch über den öffentlichen WSS-Endpunkt; zusätzliche Prüfungen bestätigen die Zugriffsgrenzen. Zertifikatsaustausch ohne Verbindungsabbruch wurde lokal getestet, der unabhängige Kopierdienst auf dem VPS erfolgreich ausgeführt.
+
+Ein vollständiger Duo-/Trio-Spielrun einschließlich echtem Auto-Ende steht weiterhin aus. Die sichtbaren Drei-Fenster-Prüfungen liefen lokal; deren zusätzliche WAN-Variante konnte bei gesperrtem Desktop nicht starten. Der erfolgreiche native WAN-Test verwendet dieselbe Coop-DLL und das echte LiveSplit-Timermodell.

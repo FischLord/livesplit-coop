@@ -1,10 +1,11 @@
 import http from 'node:http';
+import https from 'node:https';
 import { timingSafeEqual } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { validSnapshot } from './protocol.mjs';
 
 const equal = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-export function createRelay({ rooms, maxConnections = 64, maxRoomConnections = 12, heartbeatMs = 15000 }) {
+export function createRelay({ rooms, tls, maxConnections = 64, maxRoomConnections = 12, heartbeatMs = 15000 }) {
   if (!rooms || !Array.isArray(rooms) || !rooms.length) throw new Error('At least one configured room is required');
   const sessions = new Map();
   for (const r of rooms) {
@@ -12,12 +13,13 @@ export function createRelay({ rooms, maxConnections = 64, maxRoomConnections = 1
         ![r.hostKey, r.viewerKey].every(k => typeof k === 'string' && k.length >= 32 && k.length <= 256) || r.hostKey === r.viewerKey) throw new Error('Invalid room configuration');
     sessions.set(r.name, { ...r, host: null, viewers: new Set(), snapshot: null, updated: 0, fresh: false });
   }
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.method === 'GET' && req.url === '/healthz') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); }
     else { res.writeHead(404); res.end(); }
-  });
+  };
+  const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
   server.headersTimeout = 10000;
   server.requestTimeout = 10000;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024, perMessageDeflate: false });
