@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$Version='0.1.0-beta.1')
+param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$Version='0.1.0-beta.2')
 $ErrorActionPreference='Stop'
 if($Version -notmatch '^\d+\.\d+\.\d+(-[a-z0-9.]+)?$'){throw 'Invalid release version.'}
 $root=Split-Path -Parent $PSScriptRoot
