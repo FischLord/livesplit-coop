@@ -19,7 +19,7 @@ The Workers Free plan is enough to start (SQLite-backed Durable Objects). The ou
 - Kill switch: set `ROOM_CREATION` to `"0"` in `wrangler.jsonc` and deploy again. Existing rooms keep working.
 - Rooms are deleted seven days after the last connection closed. Keys are stored only as SHA-256 hashes. The last complete snapshot is stored per room so late joiners see the run; the running clock (ticks) is never written to storage.
 - The relay can technically see timer data (splits, PBs, game and category). There is no end-to-end encryption.
-- `npx wrangler tail` shows live logs; the dashboard shows requests and errors.
+- Workers Logs are enabled (`observability` in `wrangler.jsonc`): Dashboard → Workers → livesplit-coop-relay → Logs shows errors and request metadata, which can include client IP addresses, for Cloudflare's retention period. Mention this in the privacy policy before a public launch. `npx wrangler tail` streams live logs.
 
 ## Test
 

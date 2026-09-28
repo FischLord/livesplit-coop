@@ -3,6 +3,8 @@
   "main": "src/index.mjs",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
+  // Workers Logs: errors and request metadata (the code logs no timer data or keys). Visible in the dashboard.
+  "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "Room" },

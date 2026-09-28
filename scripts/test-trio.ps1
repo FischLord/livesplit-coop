@@ -1,6 +1,8 @@
 param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[Parameter(Mandatory=$true)][string]$LayoutPath,[switch]$KeepOpen,[string]$RelayAddress,[string]$RoomsFile)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
+# 'C:\LiveSplit\' passed through powershell.exe arrives as C:\LiveSplit" (the backslash escapes the quote).
+$LiveSplitPath=$LiveSplitPath.Trim().TrimEnd('"')
 $source=(Resolve-Path -LiteralPath $LiveSplitPath).Path
 $layoutSource=(Resolve-Path -LiteralPath $LayoutPath).Path
 $session=Join-Path $root ('.local\trio-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))

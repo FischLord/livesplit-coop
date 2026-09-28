@@ -25,6 +25,8 @@ namespace LiveSplit.Coop {
         public Version Version { get { return new Version(0,1,0); } }
         public IComponent Create(LiveSplitState state) { return new CoopComponent(state); }
     }
+    // Kept apart from other failures so the HUD can show a short label while settings show the full instructions.
+    public sealed class AutoSplitterActive : InvalidOperationException { public AutoSplitterActive(string message) : base(message) { } }
     public sealed class CoopComponent : IComponent {
         readonly LiveSplitState state;
         readonly CoopSettings settings=new CoopSettings();
@@ -43,6 +45,7 @@ namespace LiveSplit.Coop {
         Color colour=Color.Gray;
         public CoopComponent(LiveSplitState state) {
             this.state=state;settings.ConnectRequested+=Connect;settings.DisconnectRequested+=Disconnect;
+            settings.ViewerProblem=()=>AutoSplitterProblem(state);
             state.OnStart+=Started;state.OnSplit+=Changed;state.OnUndoSplit+=Changed;state.OnSkipSplit+=Changed;
             state.OnPause+=Changed;state.OnResume+=Changed;state.OnReset+=Reset;
         }
@@ -55,9 +58,17 @@ namespace LiveSplit.Coop {
             return type.Name=="ASLComponent" || type.Name=="ASRComponent" || type.Name.IndexOf("AutoSplit",StringComparison.OrdinalIgnoreCase)>=0 ||
                 AutoSplitterAssemblies.Contains(type.Assembly.GetName().Name,StringComparer.OrdinalIgnoreCase);
         }
+        // Returns what the user must change before viewing, or null. Says where to click, since the two cases live in different dialogs.
+        public static string AutoSplitterProblem(LiveSplitState state) {
+            if(state.Run.AutoSplitter!=null && state.Run.AutoSplitter.IsActivated)
+                return "Viewer: turn off the autosplitter first. Right-click → Edit Splits → Deactivate, then click Connect again.";
+            if(state.Layout!=null && state.Layout.Components.Any(c=>IsAutoSplitter(c.GetType())))
+                return "Viewer: remove \"Scriptable Auto Splitter\" from this layout first (right-click → Edit Layout → select it → −), then click Connect again.";
+            return null;
+        }
         static void RequireNoAutoSplitter(LiveSplitState state) {
-            if((state.Run.AutoSplitter!=null && state.Run.AutoSplitter.IsActivated) || state.Layout.Components.Any(c=>IsAutoSplitter(c.GetType())))
-                throw new InvalidOperationException("Viewer mode requires a layout without an active autosplitter or Scriptable Auto Splitter component.");
+            var problem=AutoSplitterProblem(state);
+            if(problem!=null) throw new AutoSplitterActive(problem);
         }
         public void Connect() {
             Disconnect();
@@ -67,7 +78,8 @@ namespace LiveSplit.Coop {
                 connection=new RelayConnection(settings.Address,settings.Room,role,settings.Key);
                 connection.Start();dirty=true;hasSnapshot=false;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
                 SetStatus("Connecting",Color.Goldenrod);
-            } catch(Exception e) { Disconnect();SetStatus(e.Message,Color.IndianRed); }
+            } catch(AutoSplitterActive e) { Disconnect();SetStatus("Turn off autosplitter",e.Message,Color.IndianRed); }
+            catch(Exception e) { Disconnect();SetStatus(e.Message,Color.IndianRed); }
         }
         public void Disconnect() {
             if(connection!=null) { connection.Dispose();connection=null; }
@@ -121,7 +133,8 @@ namespace LiveSplit.Coop {
                         else if(connection.Ready) SetStatus("Waiting for host",Color.Goldenrod);
                         else SetStatus(connection.Status,PhaseColor(connection.Phase));
                     }
-                } catch(Exception e) { Disconnect();SetStatus("Stopped: "+e.Message,Color.IndianRed); }
+                } catch(AutoSplitterActive e) { Disconnect();SetStatus("Stopped: autosplitter on",e.Message,Color.IndianRed); }
+                catch(Exception e) { Disconnect();SetStatus("Stopped: "+e.Message,Color.IndianRed); }
             }
             if(invalidator!=null) invalidator.Invalidate(0,0,width,height);
         }

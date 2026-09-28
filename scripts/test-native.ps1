@@ -1,6 +1,8 @@
 param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$RelayAddress,[string]$RoomsFile)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
+# 'C:\LiveSplit\' passed through powershell.exe arrives as C:\LiveSplit" (the backslash escapes the quote).
+$LiveSplitPath=$LiveSplitPath.Trim().TrimEnd('"')
 $live=(Resolve-Path -LiteralPath $LiveSplitPath).Path
 [Environment]::CurrentDirectory=$live
 $env:PATH=(Join-Path $live 'x64')+';'+$env:PATH

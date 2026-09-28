@@ -1,6 +1,8 @@
 param([Parameter(Mandatory=$true)][string]$LiveSplitPath)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
+# 'C:\LiveSplit\' passed through powershell.exe arrives as C:\LiveSplit" (the backslash escapes the quote).
+$LiveSplitPath=$LiveSplitPath.Trim().TrimEnd('"')
 $live=(Resolve-Path -LiteralPath $LiveSplitPath).Path
 $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if(!(Test-Path -LiteralPath $compiler)){throw 'Windows .NET Framework compiler not found.'}

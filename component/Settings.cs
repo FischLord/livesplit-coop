@@ -20,6 +20,8 @@ namespace LiveSplit.Coop {
         string inviteKey="";
         public event Action ConnectRequested;
         public event Action DisconnectRequested;
+        // Set by the component: why this layout cannot view yet, or null.
+        public Func<string> ViewerProblem;
         public string Address { get { return address.Text.Trim(); } }
         public string Room { get { return room.Text.Trim(); } }
         public string Key { get { return key.Text.Trim(); } }
@@ -88,7 +90,9 @@ namespace LiveSplit.Coop {
             string server,id,viewerKey;
             if(!Invite.TryParse(text,out server,out id,out viewerKey)) { status.Text="That is not a valid invite code. Ask the host to copy it again.";return; }
             address.Text=server;room.Text=id;role.SelectedIndex=1;key.Text=viewerKey;inviteKey="";ShowInvite();
-            status.Text="Invite applied. Save the layout, then click Connect.";
+            // Tell viewers about an active autosplitter now rather than only when Connect fails.
+            string problem=ViewerProblem==null?null:ViewerProblem();
+            status.Text=problem==null?"Invite applied. Save the layout, then click Connect.":"Invite applied. "+problem;
         }
         void JoinFromClipboard() {
             string text=Clipboard.ContainsText()?Clipboard.GetText():"";

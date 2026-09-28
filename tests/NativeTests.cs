@@ -176,6 +176,7 @@ public static class NativeTests {
         Check(Object.ReferenceEquals(viewer.Run,original) && original[0].PersonalBestSplitTime.RealTime==before.RealTime,"disconnect restores untouched original run");
         Check(viewer.CurrentPhase==TimerPhase.NotRunning,"restored local timer is idle");
         Check(CoopComponent.IsAutoSplitter(typeof(ASLComponent)) && CoopComponent.IsAutoSplitter(typeof(ASRComponent)) && !CoopComponent.IsAutoSplitter(typeof(CoopComponent)),"viewer guard recognises ASL/ASR component names");
+        Check(CoopComponent.AutoSplitterProblem(State())==null,"a layout without autosplitter may view");
         string asl=Path.Combine(Environment.CurrentDirectory,"Components","LiveSplit.ScriptableAutoSplit.dll");
         if(File.Exists(asl)) {
             Type[] types;try { types=System.Reflection.Assembly.LoadFrom(asl).GetTypes(); } catch(System.Reflection.ReflectionTypeLoadException e) { types=e.Types.Where(x=>x!=null).ToArray(); }
