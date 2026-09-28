@@ -1,22 +1,46 @@
 import http from 'node:http';
 import https from 'node:https';
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { PROTOCOL, validSnapshot, validTick } from './protocol.mjs';
 
 const equal = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-export function createRelay({ rooms, tls, maxConnections = 64, maxPending = 16, maxRoomConnections = 12, heartbeatMs = 15000, authMs = 5000 }) {
-  if (!rooms || !Array.isArray(rooms) || !rooms.length) throw new Error('At least one configured room is required');
+const DAY = 86400000;
+// roomCreation enables POST /rooms. Created rooms live in memory only and expire after roomIdleMs without
+// members; configured rooms never expire. createPerHour is global because client addresses are not used.
+export function createRelay({ rooms = [], tls, roomCreation = false, maxRooms = 256, createPerHour = 30, roomIdleMs = 7 * DAY,
+  maxConnections = 64, maxPending = 16, maxRoomConnections = 12, heartbeatMs = 15000, authMs = 5000 }) {
+  if (!Array.isArray(rooms) || (!rooms.length && !roomCreation)) throw new Error('At least one configured room is required');
   const sessions = new Map();
+  const open = (name, keys, expires) => sessions.set(name, { name, ...keys, expires, active: Date.now(), host: null, viewers: new Set(), snapshot: null, updated: 0, fresh: false });
   for (const r of rooms) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(r.name) || sessions.has(r.name) ||
         ![r.hostKey, r.viewerKey].every(k => typeof k === 'string' && k.length >= 32 && k.length <= 256) || r.hostKey === r.viewerKey) throw new Error('Invalid room configuration');
-    sessions.set(r.name, { ...r, host: null, viewers: new Set(), snapshot: null, updated: 0, fresh: false });
+    open(r.name, { hostKey: r.hostKey, viewerKey: r.viewerKey }, false);
+  }
+  const created = [];
+  function sweep() {
+    const now = Date.now();
+    for (const [name, r] of sessions) if (r.expires && !r.host && !r.viewers.size && now - r.active >= roomIdleMs) sessions.delete(name);
+  }
+  function createRoom(res) {
+    const now = Date.now();
+    while (created.length && now - created[0] >= 3600000) created.shift();
+    if (created.length >= createPerHour) { res.writeHead(429, { 'Retry-After': String(Math.ceil((created[0] + 3600000 - now) / 1000)) }); res.end(); return; }
+    sweep();
+    if (sessions.size >= maxRooms) { res.writeHead(503); res.end(); return; }
+    let name; do name = randomBytes(16).toString('base64url'); while (sessions.has(name));
+    const keys = { hostKey: randomBytes(32).toString('base64url'), viewerKey: randomBytes(32).toString('base64url') };
+    open(name, keys, true); created.push(now);
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ roomId: name, ...keys, idleExpiryDays: roomIdleMs / DAY }));
   }
   const handler = (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.method === 'GET' && req.url === '/healthz') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); }
+    // Browsers could send this cross-site; only native clients may create rooms.
+    else if (roomCreation && req.method === 'POST' && req.url === '/rooms' && !req.headers.origin) { req.resume(); createRoom(res); }
     else { res.writeHead(404); res.end(); }
   };
   const server = tls ? https.createServer({ handshakeTimeout: 10000, ...tls }, handler) : http.createServer(handler);
@@ -30,10 +54,12 @@ export function createRelay({ rooms, tls, maxConnections = 64, maxPending = 16, 
   const members = new Set();
   server.on('upgrade', (req, socket, head) => {
     // Native client only. Browsers and URL credentials are deliberately unsupported.
-    if (req.url !== '/coop' || req.headers.origin) {
+    // v3 addresses the room in the path. Bare /coop is still accepted so older clients learn to update.
+    const path = /^\/coop(?:\/([a-zA-Z0-9_-]{1,64}))?$/.exec(req.url);
+    if (!path || req.headers.origin) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
     }
-    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, path[1]));
   });
   function send(ws, data) {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -41,7 +67,7 @@ export function createRelay({ rooms, tls, maxConnections = 64, maxPending = 16, 
     ws.send(data);
   }
   function broadcast(room, msg) { const data = JSON.stringify(msg); for (const ws of room.viewers) send(ws, data); }
-  wss.on('connection', ws => {
+  wss.on('connection', (ws, pathRoom) => {
     let room, role, seq = -1, count = 0, windowStart = Date.now();
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
@@ -58,18 +84,18 @@ export function createRelay({ rooms, tls, maxConnections = 64, maxPending = 16, 
       if (!m || typeof m !== 'object') { ws.close(1008, 'Invalid message'); return; }
       if (!room) {
         if (m.type === 'hello' && m.v !== PROTOCOL) { ws.close(1008, 'Unsupported protocol version; update LiveSplit Coop'); return; }
-        const candidate = sessions.get(m.room);
-        if (m.type !== 'hello' || !candidate || !['host', 'viewer'].includes(m.role) ||
-            !equal(m.key, m.role === 'host' ? candidate.hostKey : candidate.viewerKey)) {
-          ws.close(1008, 'Authentication failed'); return;
-        }
+        if (m.type !== 'hello' || !['host', 'viewer'].includes(m.role)) { ws.close(1008, 'Authentication failed'); return; }
+        if (!pathRoom) { ws.close(1008, 'Room missing from path'); return; }
+        const candidate = sessions.get(pathRoom);
+        if (!candidate) { ws.close(4004, 'Room expired or unknown'); return; }
+        if (!equal(m.key, m.role === 'host' ? candidate.hostKey : candidate.viewerKey)) { ws.close(1008, 'Authentication failed'); return; }
         // The host always has a reserved slot; viewers cannot lock the publisher out.
         const previousHost = m.role === 'host' ? candidate.host : null;
         const replacingMember = previousHost && members.has(previousHost);
         if (members.size - (replacingMember ? 1 : 0) >= maxConnections || (m.role === 'viewer' && candidate.viewers.size >= maxRoomConnections - 1)) {
           ws.close(1008, 'Room occupied or full'); return;
         }
-        clearTimeout(deadline); pending.delete(ws); members.add(ws); room = candidate; role = m.role;
+        clearTimeout(deadline); pending.delete(ws); members.add(ws); room = candidate; role = m.role; room.active = Date.now();
         if (role === 'host') {
           // Holding the host key proves authority. The newest connection wins, so a host whose
           // previous socket silently died can publish again at once.
@@ -107,7 +133,7 @@ export function createRelay({ rooms, tls, maxConnections = 64, maxPending = 16, 
       clearTimeout(deadline);
       pending.delete(ws);
       if (!room) return;
-      members.delete(ws);
+      members.delete(ws); room.active = Date.now();
       if (room.host === ws) { room.host = null; broadcast(room, { type: 'host', online: false }); }
       room.viewers.delete(ws);
     });
@@ -117,6 +143,7 @@ export function createRelay({ rooms, tls, maxConnections = 64, maxPending = 16, 
       if (!ws.alive) { ws.terminate(); continue; }
       ws.alive = false; ws.ping();
     }
+    sweep();
   }, heartbeatMs);
   pulse.unref();
   return {

@@ -1,6 +1,6 @@
 # Feature-Plan: Community-Relay auf Cloudflare Durable Objects
 
-**Status:** Entwurf zur Prüfung, nicht umgesetzt · **Stand:** 2026-09-27 · **Basis:** Protokoll v2 (`e551281`)
+**Status:** in Umsetzung, Phase 1 erledigt · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
 
 ## Ziel
 
@@ -138,7 +138,16 @@ Keine Rechtsberatung, sondern Punkte, die vor dem öffentlichen Start geklärt s
 | Abhängigkeit von einem Anbieter | Docker-Relay bleibt gleichwertig; dieselbe Komponente spricht beide |
 | Betreiberpflichten (Recht, Support) | klein starten (geschlossene Beta), klare Nutzungsbedingungen |
 
-## Offene Entscheidungen
+## Entscheidungen (2026-09-28)
+
+- Keine Ende-zu-Ende-Verschlüsselung in v1; im README transparent dokumentieren.
+- Domain: `*.workers.dev`.
+- Räume verfallen nach 7 Tagen ohne Aktivität.
+- Cloudflare-Account ist vorhanden.
+
+Umsetzung Phase 1 abweichend vom Entwurf: `hello` enthält keinen Raum mehr, und der nackte Pfad `/coop` bleibt nur offen, damit v1/v2-Clients die Update-Meldung erhalten. `POST /rooms` liefert `idleExpiryDays` statt `expiresAt`, weil der Ablauf an Inaktivität hängt. Der Einladungscode folgt in Phase 3.
+
+## Ursprünglich offene Entscheidungen
 
 1. **Ende-zu-Ende-Verschlüsselung?** Sie würde verhindern, dass der Betreiber Timer-Daten sieht. Dann kann das Relay aber weder validieren noch Ticks zusammenführen. Empfehlung: in v1 nicht, stattdessen transparent dokumentieren.
 2. **Domain:** `*.workers.dev` oder eine eigene Domain wie `coop.<deine-domain>`?

@@ -7,7 +7,7 @@ import { validSnapshot } from '../src/protocol.mjs';
 
 const room={ name:'test',hostKey:'h'.repeat(32),viewerKey:'v'.repeat(32) };
 function snapshot(seq=1) {
-  return {type:'snapshot',v:2,seq,runId:'run1',attemptId:'attempt1',game:'Test',category:'Coop',attempts:1,
+  return {type:'snapshot',v:3,seq,runId:'run1',attemptId:'attempt1',game:'Test',category:'Coop',attempts:1,
     phase:'Running',index:1,timingMethod:'RealTime',comparison:'Personal Best',offsetTicks:0,
     realTicks:150000000,gameTicks:null,gamePaused:false,
     segments:[0,1,2].map(i=>({name:`CP${i}`,splitRT:i===0?100000000:null,splitGT:null,pbRT:(i+1)*120000000,pbGT:null,bestRT:100000000,bestGT:null,comparisons:{}}))};
@@ -17,15 +17,15 @@ async function setup(t,options={}) {
   t.after(()=>relay.close());
   return `ws://127.0.0.1:${relay.server.address().port}/coop`;
 }
-async function client(url,role='viewer',key=role==='host'?room.hostKey:room.viewerKey) {
-  const ws=new WebSocket(url);const queue=[],waiters=[];
+async function client(url,role='viewer',key=role==='host'?room.hostKey:room.viewerKey,name=room.name) {
+  const ws=new WebSocket(`${url}/${name}`);const queue=[],waiters=[];
   ws.on('message',data=>{const m=JSON.parse(data);const i=waiters.findIndex(w=>w.type===m.type);if(i<0)queue.push(m);else waiters.splice(i,1)[0].resolve(m);});
   ws.next=type=>new Promise((resolve,reject)=>{
     const index=queue.findIndex(m=>m.type===type);if(index>=0){resolve(queue.splice(index,1)[0]);return;}
     const timer=setTimeout(()=>reject(new Error('Timeout waiting for '+type)),2000);
     waiters.push({type,resolve:m=>{clearTimeout(timer);resolve(m);}});
   });
-  await once(ws,'open');ws.send(JSON.stringify({type:'hello',v:2,room:room.name,role,key}));return ws;
+  await once(ws,'open');ws.send(JSON.stringify({type:'hello',v:3,role,key}));return ws;
 }
 test('host sends exact RTA and nullable GT to two viewers; late join receives all splits',async t=>{
   const url=await setup(t);const host=await client(url,'host');await host.next('ready');
@@ -68,19 +68,19 @@ test('ticks carry only the clock; late joiners get the merged complete snapshot'
   const url=await setup(t);const host=await client(url,'host');await host.next('ready');
   const viewer=await client(url);await viewer.next('ready');await viewer.next('host');
   host.send(JSON.stringify(snapshot(1)));await viewer.next('state');
-  host.send(JSON.stringify({type:'tick',v:2,seq:2,realTicks:160000000,gameTicks:null,gamePaused:false}));
+  host.send(JSON.stringify({type:'tick',v:3,seq:2,realTicks:160000000,gameTicks:null,gamePaused:false}));
   const tick=await viewer.next('tick');assert.deepEqual(tick,{type:'tick',seq:2,realTicks:160000000,gameTicks:null,gamePaused:false});
   const late=await client(url);const merged=(await late.next('state')).snapshot;
   assert.deepEqual(merged,{...snapshot(2),realTicks:160000000});
 });
 test('ticks need a snapshot from the same connection and cannot break finish invariants',async t=>{
   const url=await setup(t);const early=await client(url,'host');await early.next('ready');
-  early.send(JSON.stringify({type:'tick',v:2,seq:1,realTicks:1,gameTicks:null,gamePaused:false}));
+  early.send(JSON.stringify({type:'tick',v:3,seq:1,realTicks:1,gameTicks:null,gamePaused:false}));
   assert.equal((await once(early,'close'))[0],1008);
   const host=await client(url,'host');await host.next('ready');
   const final=snapshot(1);final.phase='Ended';final.index=3;final.segments.forEach((s,i)=>{s.splitRT=(i+1)*100000000;});final.realTicks=300000000;
   host.send(JSON.stringify(final));
-  host.send(JSON.stringify({type:'tick',v:2,seq:2,realTicks:300000001,gameTicks:null,gamePaused:false}));
+  host.send(JSON.stringify({type:'tick',v:3,seq:2,realTicks:300000001,gameTicks:null,gamePaused:false}));
   assert.equal((await once(host,'close'))[0],1008);
 });
 test('host disconnect is announced; cached final result stays available offline',async t=>{
@@ -122,4 +122,30 @@ test('host takeover succeeds at the global connection limit without granting ext
   assert.equal((await closed)[0],4001);
   second.send(JSON.stringify(snapshot()));await viewer.next('state');
   const extra=await client(url);assert.equal((await once(extra,'close'))[0],1008);
+});
+test('rooms are addressed by path; unknown rooms close with 4004 and a missing path is refused',async t=>{
+  const url=await setup(t);
+  const unknown=await client(url,'viewer',room.viewerKey,'nosuchroom');const [code,reason]=await once(unknown,'close');
+  assert.equal(code,4004);assert.match(reason.toString(),/expired or unknown/);
+  const bare=new WebSocket(url);await once(bare,'open');bare.send(JSON.stringify({type:'hello',v:3,role:'viewer',key:room.viewerKey}));
+  assert.equal((await once(bare,'close'))[0],1008);
+  for(const path of ['/coop/','/coop/a/b','/coop/bad%20id']) { const ws=new WebSocket(url.replace('/coop',path));const [error]=await once(ws,'error');assert.match(error.message,/403/); }
+});
+test('room creation is off by default; created rooms work, are rate limited and expire when idle',async t=>{
+  const plain=await setup(t);
+  assert.equal((await fetch(plain.replace('ws:','http:').replace('/coop','/rooms'),{method:'POST'})).status,404);
+  const url=await setup(t,{roomCreation:true,createPerHour:2,roomIdleMs:100});const rooms=url.replace('ws:','http:').replace('/coop','/rooms');
+  assert.equal((await fetch(rooms,{method:'POST',headers:{Origin:'https://example.com'}})).status,404,'browsers cannot create rooms');
+  const response=await fetch(rooms,{method:'POST'});assert.equal(response.status,201);
+  const made=await response.json();assert.match(made.roomId,/^[A-Za-z0-9_-]{22}$/);assert.notEqual(made.hostKey,made.viewerKey);
+  const host=await client(url,'host',made.hostKey,made.roomId);await host.next('ready');
+  const viewer=await client(url,'viewer',made.viewerKey,made.roomId);await viewer.next('ready');
+  host.send(JSON.stringify(snapshot()));await viewer.next('state');
+  const cross=await client(url,'viewer',room.viewerKey,made.roomId);assert.equal((await once(cross,'close'))[0],1008,'keys are per room');
+  host.close();viewer.close();await Promise.all([once(host,'close'),once(viewer,'close')]);
+  await new Promise(r=>setTimeout(r,150));
+  assert.equal((await fetch(rooms,{method:'POST'})).status,201,'creating sweeps idle rooms');
+  const limited=await fetch(rooms,{method:'POST'});assert.equal(limited.status,429);assert.ok(Number(limited.headers.get('retry-after'))>0);
+  const expired=await client(url,'viewer',made.viewerKey,made.roomId);assert.equal((await once(expired,'close'))[0],4004);
+  const configured=await client(url);assert.equal((await configured.next('ready')).role,'viewer','configured rooms never expire');
 });

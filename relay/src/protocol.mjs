@@ -1,4 +1,4 @@
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 const bound = 7 * 86400 * 10000000;
 const text = (s, n = 200) => typeof s === 'string' && s.length <= n && !/[\x00-\x1f]/.test(s);
 const ticks = n => n === null || (Number.isSafeInteger(n) && Math.abs(n) <= bound);

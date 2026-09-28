@@ -9,9 +9,9 @@ const [room] = JSON.parse(await readFile(file, 'utf8'));
 const clients = [];
 const deadline = setTimeout(() => { console.error('Remote smoke test timeout'); process.exit(1); }, 15000);
 async function connect(role, key) {
-  const ws = new WebSocket(url, { handshakeTimeout: 5000 }); clients.push(ws);
+  const ws = new WebSocket(`${url}/${room.name}`, { handshakeTimeout: 5000 }); clients.push(ws);
   await once(ws, 'open');
-  return { ws, hello: () => ws.send(JSON.stringify({type:'hello',v:2,room:room.name,role,key})) };
+  return { ws, hello: () => ws.send(JSON.stringify({type:'hello',v:3,role,key})) };
 }
 try {
   const health = await fetch(url.replace('wss:', 'https:').replace('/coop', '/healthz'));
