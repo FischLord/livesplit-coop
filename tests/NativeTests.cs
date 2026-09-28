@@ -85,7 +85,55 @@ public static class NativeTests {
         }) { IsBackground=true }.Start();
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
-    public static void Run(string url) { Run(url,"test",new string('h',32),new string('v',32)); }
+    public static void Run(string url) { Run(url,"test",new string('h',32),new string('v',32));RunInvites(url); }
+    // Answers one plain HTTP request with the given status, like a relay that does not offer room creation.
+    static int HttpStatusServer(int code) {
+        var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
+        new Thread(()=>{
+            using(var client=listener.AcceptTcpClient())
+            using(var stream=client.GetStream()) {
+                var request=new StringBuilder();var one=new byte[1];
+                while(!request.ToString().EndsWith("\r\n\r\n") && stream.Read(one,0,1)==1) request.Append((char)one[0]);
+                var reply=Encoding.ASCII.GetBytes("HTTP/1.1 "+code+" X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");stream.Write(reply,0,reply.Length);
+            }
+            listener.Stop();
+        }) { IsBackground=true }.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+    // Room creation and invites need a relay started with room creation, so they only run against the local fixture.
+    public static void RunInvites(string url) {
+        string server,room,key;
+        var code=Invite.Format(url,"abcDEF_-123",new string('v',43));
+        Check(code=="lscoop:1:"+url+"/abcDEF_-123#"+new string('v',43),"an invite is one line with server, room and viewer key");
+        Check(Invite.TryParse("  "+code+"\r\n",out server,out room,out key) && server==url && room=="abcDEF_-123" && key==new string('v',43),"an invite round-trips, ignoring surrounding whitespace");
+        Check(Invite.TryParse("lscoop:1:wss://relay.example/coop/r1#"+new string('k',32),out server,out room,out key) && server=="wss://relay.example/coop","a public wss invite parses");
+        foreach(var bad in new[]{"lscoop:2:wss://relay.example/coop/r1#"+new string('k',32),"wss://relay.example/coop/r1#"+new string('k',32),
+            "lscoop:1:ws://relay.example/coop/r1#"+new string('k',32),"lscoop:1:wss://relay.example/other/r1#"+new string('k',32),
+            "lscoop:1:wss://relay.example/coop/r1#short","lscoop:1:wss://relay.example/coop/r1?x=1#"+new string('k',32),
+            "lscoop:1:wss://user@relay.example/coop/r1#"+new string('k',32),"lscoop:1:wss://relay.example/coop/bad room#"+new string('k',32),""})
+            Check(!Invite.TryParse(bad,out server,out room,out key),"invalid invite is refused: "+(bad.Length>40?bad.Substring(0,40)+"...":bad));
+        var grant=Invite.Create(url);
+        Check(grant.room.Length==22 && grant.hostKey!=grant.viewerKey && grant.server==url,"Create room returns a new room with separate host and viewer keys");
+        Check(Invite.TryParse(Invite.Format(grant.server,grant.room,grant.viewerKey),out server,out room,out key) && room==grant.room && key==grant.viewerKey,"the created room's invite carries only the viewer key");
+        using(var publisher=new RelayConnection(url,grant.room,"host",grant.hostKey))
+        using(var viewer=new RelayConnection(server,room,"viewer",key)) {
+            publisher.Start();viewer.Start();Wait(()=>publisher.Ready && viewer.Ready,"created room accepts host and invited viewer");
+            var host=State();var model=new TimerModel { CurrentState=host };model.Start();
+            publisher.Publish(Snapshot.Capture(host,"created","attempt",7));
+            Check(Receive(viewer,7).snapshot.runId=="created","a viewer joined by invite follows the host of a created room");
+        }
+        using(var wrongKey=new RelayConnection(url,grant.room,"host",grant.viewerKey)) {
+            wrongKey.Start();Wait(()=>wrongKey.Phase==RelayPhase.Stopped,"viewer key cannot host");
+            Check(!wrongKey.Ready,"the invite's viewer key cannot take the host slot");
+        }
+        try { Invite.Create("ws://127.0.0.1:"+HttpStatusServer(404)+"/coop");Check(false,"404 must fail"); }
+        catch(InvalidOperationException e) { Check(e.Message.Contains("does not create rooms"),"a relay without room creation gets a clear hint"); }
+        try { Invite.Create("ws://127.0.0.1:"+HttpStatusServer(429)+"/coop");Check(false,"429 must fail"); }
+        catch(InvalidOperationException e) { Check(e.Message.Contains("Wait a minute"),"a rate-limited Create room asks to wait"); }
+        try { Invite.Create("ws://relay.example/coop");Check(false,"plain ws must fail"); }
+        catch(ArgumentException) { Check(true,"Create room refuses unencrypted remote servers"); }
+        Console.WriteLine("Native checks passed: "+passed);
+    }
     public static void Run(string url,string room,string hostKey,string viewerKey) {
         // LiveSplit may queue blocking game-metadata lookups for each named test run. Reserve
         // enough workers for the real WebSocket clients on a cold metadata cache.
