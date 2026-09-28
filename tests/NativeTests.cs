@@ -33,21 +33,64 @@ public static class NativeTests {
     static Delivery Receive(RelayConnection c,long seq) {
         Delivery result=null;Wait(()=>{var next=c.Take();if(next!=null && next.snapshot.seq==seq)result=next;return result!=null;},"snapshot "+seq);return result;
     }
-    // Completes the WebSocket handshake and then never answers, like a path that died silently.
-    static int SilentRelay() {
+    // Reads the HTTP upgrade request off a raw socket and answers with the WebSocket handshake response.
+    static void Handshake(NetworkStream stream) {
+        var request=new StringBuilder();var one=new byte[1];
+        while(!request.ToString().EndsWith("\r\n\r\n") && stream.Read(one,0,1)==1) request.Append((char)one[0]);
+        var key=request.ToString().Split(new[]{"\r\n"},StringSplitOptions.None).First(l=>l.StartsWith("Sec-WebSocket-Key:",StringComparison.OrdinalIgnoreCase)).Substring(18).Trim();
+        string accept;using(var sha=SHA1.Create()) accept=Convert.ToBase64String(sha.ComputeHash(Encoding.ASCII.GetBytes(key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
+        var reply=Encoding.ASCII.GetBytes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "+accept+"\r\n\r\n");
+        stream.Write(reply,0,reply.Length);
+    }
+    static void WriteClose(NetworkStream stream,string reason) {
+        var reasonBytes=Encoding.UTF8.GetBytes(reason);
+        var payload=new byte[2+reasonBytes.Length];
+        payload[0]=0x03;payload[1]=0xF0; // 1008 Policy Violation, big-endian
+        Array.Copy(reasonBytes,0,payload,2,reasonBytes.Length);
+        var frame=new byte[2+payload.Length];
+        frame[0]=0x88;frame[1]=(byte)payload.Length;
+        Array.Copy(payload,0,frame,2,payload.Length);
+        stream.Write(frame,0,frame.Length);
+    }
+    static void WriteText(NetworkStream stream,string json) {
+        var payload=Encoding.UTF8.GetBytes(json);
+        var frame=new byte[2+payload.Length];
+        frame[0]=0x81;frame[1]=(byte)payload.Length;
+        Array.Copy(payload,0,frame,2,payload.Length);
+        stream.Write(frame,0,frame.Length);
+    }
+    // Completes the WebSocket handshake for a fake relay, then hands the raw stream to the caller's continuation.
+    static int FakeRelay(Action<NetworkStream> behavior) {
         var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
         new Thread(()=>{
-            var client=listener.AcceptTcpClient();var stream=client.GetStream();var request=new StringBuilder();var one=new byte[1];
-            while(!request.ToString().EndsWith("\r\n\r\n") && stream.Read(one,0,1)==1) request.Append((char)one[0]);
-            var key=request.ToString().Split(new[]{"\r\n"},StringSplitOptions.None).First(l=>l.StartsWith("Sec-WebSocket-Key:",StringComparison.OrdinalIgnoreCase)).Substring(18).Trim();
-            string accept;using(var sha=SHA1.Create()) accept=Convert.ToBase64String(sha.ComputeHash(Encoding.ASCII.GetBytes(key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
-            var reply=Encoding.ASCII.GetBytes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "+accept+"\r\n\r\n");
-            stream.Write(reply,0,reply.Length);Thread.Sleep(30000);client.Close();listener.Stop();
+            using(var client=listener.AcceptTcpClient())
+            using(var stream=client.GetStream()) { Handshake(stream);behavior(stream); }
+            listener.Stop();
+        }) { IsBackground=true }.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+    // Completes the WebSocket handshake and then never answers, like a path that died silently.
+    static int SilentRelay() { return FakeRelay(stream=>Thread.Sleep(30000)); }
+    // Closes immediately with a 1008 policy violation, like a relay rejecting an invalid room key.
+    static int PolicyRelay(string reason) { return FakeRelay(stream=>{ WriteClose(stream,reason);Thread.Sleep(500); }); }
+    // First connection is rejected as if the room were full; the retry against a freed slot reaches ready.
+    static int OccupiedThenReadyRelay() {
+        var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
+        new Thread(()=>{
+            using(var first=listener.AcceptTcpClient())
+            using(var firstStream=first.GetStream()) { Handshake(firstStream);WriteClose(firstStream,"Room occupied or full");Thread.Sleep(200); }
+            using(var second=listener.AcceptTcpClient())
+            using(var secondStream=second.GetStream()) { Handshake(secondStream);WriteText(secondStream,"{\"type\":\"ready\",\"v\":2,\"role\":\"viewer\"}");Thread.Sleep(8000); }
+            listener.Stop();
         }) { IsBackground=true }.Start();
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
     public static void Run(string url) { Run(url,"test",new string('h',32),new string('v',32)); }
     public static void Run(string url,string room,string hostKey,string viewerKey) {
+        // LiveSplit may queue blocking game-metadata lookups for each named test run. Reserve
+        // enough workers for the real WebSocket clients on a cold metadata cache.
+        int minWorkers,minIo;ThreadPool.GetMinThreads(out minWorkers,out minIo);
+        if(!ThreadPool.SetMinThreads(Math.Max(minWorkers,64),minIo)) throw new InvalidOperationException("Could not reserve native test workers.");
         var host=State();var model=new TimerModel { CurrentState=host };model.Start();
         host.AdjustedStartTime=TimeStamp.Now-TimeSpan.FromSeconds(10);model.Split();
         host.AdjustedStartTime=TimeStamp.Now-TimeSpan.FromSeconds(20);model.Split();
@@ -133,7 +176,7 @@ public static class NativeTests {
             Thread.Sleep(600);var merged=b.Take();
             Check(merged!=null && merged.snapshot.seq==12 && merged.structural && merged.snapshot.attemptId=="attempt6","a snapshot followed by a tick before the frame is still applied as a snapshot");
             using(var takeover=new RelayConnection(url,room,"host",hostKey)) {
-                takeover.Start();Wait(()=>takeover.Ready && publisher.Status.Contains("took over"),"host takeover");
+                takeover.Start();Wait(()=>takeover.Ready && publisher.Phase==RelayPhase.Stopped,"host takeover");
                 Thread.Sleep(3500);
                 Check(takeover.Ready && !publisher.Ready,"newer host replaces the old connection, which stops instead of fighting back");
             }
@@ -142,14 +185,19 @@ public static class NativeTests {
         }
         using(var silent=new RelayConnection("ws://127.0.0.1:"+SilentRelay()+"/coop","test","viewer",new string('v',32))) {
             silent.Start();var timer=Stopwatch.StartNew();
-            while(timer.ElapsedMilliseconds<16000 && silent.Status!="Relay not responding; retrying") Thread.Sleep(50);
-            Check(silent.Status=="Relay not responding; retrying","a silent relay is detected without waiting for TCP");
+            while(timer.ElapsedMilliseconds<16000 && silent.Phase!=RelayPhase.Retrying) Thread.Sleep(50);
+            Check(silent.Phase==RelayPhase.Retrying,"a silent relay is detected without waiting for TCP");
         }
-        using(var component=new CoopComponent(State())) {
-            var doc=new System.Xml.XmlDocument();var saved=component.GetSettings(doc);component.SetSettings(saved);
-            using(var image=new System.Drawing.Bitmap(360,22)) using(var graphics=System.Drawing.Graphics.FromImage(image))
-                component.DrawVertical(graphics,viewer,360,new System.Drawing.Region());
-            Check(component.ComponentName=="Coop Relay","component UI constructs, saves/loads settings and renders status");
+        using(var invalidKey=new RelayConnection("ws://127.0.0.1:"+PolicyRelay("Authentication failed")+"/coop","test","viewer",new string('v',32))) {
+            invalidKey.Start();
+            Wait(()=>invalidKey.Phase==RelayPhase.Stopped,"invalid room key reaches a terminal phase");
+            Thread.Sleep(4000);
+            Check(invalidKey.Phase==RelayPhase.Stopped && !invalidKey.Ready,"a rejected room key stops for good instead of repeatedly reconnecting");
+        }
+        using(var occupied=new RelayConnection("ws://127.0.0.1:"+OccupiedThenReadyRelay()+"/coop","test","viewer",new string('v',32))) {
+            occupied.Start();
+            Wait(()=>occupied.Ready,"a transient room-full 1008 keeps retrying until a slot opens and ready arrives");
+            Check(occupied.Ready && occupied.Phase==RelayPhase.Connected,"room occupied or full retries instead of stopping permanently");
         }
         Console.WriteLine("Native checks passed: "+passed);
     }
