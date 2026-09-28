@@ -199,6 +199,11 @@ public static class NativeTests {
             Wait(()=>occupied.Ready,"a transient room-full 1008 keeps retrying until a slot opens and ready arrives");
             Check(occupied.Ready && occupied.Phase==RelayPhase.Connected,"room occupied or full retries instead of stopping permanently");
         }
+        using(var unknown=new RelayConnection(url,"nosuchroom","viewer",viewerKey)) {
+            unknown.Start();
+            Wait(()=>unknown.Phase==RelayPhase.Stopped,"an unknown room reaches a terminal phase");
+            Check(unknown.Status.Contains("room expired or unknown"),"an unknown or expired room (4004) stops with a clear hint instead of retrying");
+        }
         Console.WriteLine("Native checks passed: "+passed);
     }
 }

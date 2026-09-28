@@ -2,7 +2,7 @@
 
 One player measures the run. Teammates see the same splits in their own LiveSplit windows — through a relay you host yourself, without a VPN or a desktop companion app.
 
-**Status: 0.1.0-beta.2 — public testing beta.** Built and tested with Windows LiveSplit 1.8.34; deployed on a Linux VPS using rootless Docker and a publicly trusted TLS endpoint. Protocol v2 passed the local three-window and native tests; the native tests over the public endpoint were run with 0.1.0-beta.1 (protocol v1). A complete real game run remains untested.
+**Status: 0.1.0-beta.2 — public testing beta.** Built and tested with Windows LiveSplit 1.8.34; deployed on a Linux VPS using rootless Docker and a publicly trusted TLS endpoint. Protocol v2 passed the local three-window and native tests; the native tests over the public endpoint were run with 0.1.0-beta.1 (protocol v1). The `main` branch now speaks protocol v3 (room in the URL path), which beta.2 clients and relays do not understand. A complete real game run remains untested.
 
 ```text
 Host LiveSplit + Coop component ──WSS──┐
@@ -50,7 +50,7 @@ npm run room -- coop
 npm start
 ```
 
-The key generator creates `rooms.json` and refuses to overwrite an existing file. Keep `hostKey` private; give teammates only `viewerKey`. This file is gitignored. The local endpoint is `ws://127.0.0.1:8787/coop`; plain `ws://` is accepted by the component **only for loopback development**. Remote players use WSS through a TLS reverse proxy, or direct TLS on a separate port using `compose.tls.yaml` and `TLS_PEM_FILE`.
+The key generator creates `rooms.json` and refuses to overwrite an existing file. Alternatively start with `ROOM_CREATION=1` to let clients create rooms via `POST /rooms` (see [protocol](docs/protocol.md)); such rooms live in memory and expire after seven idle days. Keep `hostKey` private; give teammates only `viewerKey`. This file is gitignored. The local endpoint is `ws://127.0.0.1:8787/coop`; plain `ws://` is accepted by the component **only for loopback development**. Remote players use WSS through a TLS reverse proxy, or direct TLS on a separate port using `compose.tls.yaml` and `TLS_PEM_FILE`.
 
 For Linux/container deployment, see [deployment](docs/deployment.md). Docker is optional; the relay can also run as a restricted service account. No hosted account, third-party relay or VPN is used.
 

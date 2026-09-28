@@ -17,10 +17,10 @@ namespace LiveSplit.Coop {
     }
     public enum RelayPhase { Connecting, Joining, Connected, Retrying, Stopped }
     public sealed class RelayConnection : IDisposable {
-        public const int Protocol=2;
-        const int Replaced=4001;
+        public const int Protocol=3;
+        const int Replaced=4001,UnknownRoom=4004;
         readonly Uri uri;
-        readonly string room,role,key;
+        readonly string role,key;
         readonly CancellationTokenSource cancel=new CancellationTokenSource();
         readonly object gate=new object();
         ClientWebSocket socket;
@@ -28,7 +28,7 @@ namespace LiveSplit.Coop {
         Delivery incoming;
         long lastMessage;
         volatile int generation;
-        volatile bool ready,hostOnline,replaced;
+        volatile bool ready,hostOnline,replaced,unknownRoom;
         volatile string status="Connecting";
         volatile bool policyClose;
         volatile string policyReason;
@@ -41,13 +41,14 @@ namespace LiveSplit.Coop {
         public int Generation { get { return generation; } }
         public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength=262144,RecursionLimit=24 }; }
         public RelayConnection(string url,string room,string role,string key) {
-            uri=new Uri(url);
-            if((uri.Scheme!="wss" && !(uri.Scheme=="ws" && uri.IsLoopback)) || uri.AbsolutePath!="/coop" ||
-               !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment))
+            var server=new Uri(url);
+            if((server.Scheme!="wss" && !(server.Scheme=="ws" && server.IsLoopback)) || server.AbsolutePath!="/coop" ||
+               !string.IsNullOrEmpty(server.Query) || !string.IsNullOrEmpty(server.UserInfo) || !string.IsNullOrEmpty(server.Fragment))
                 throw new ArgumentException("Use wss://your-server/coop (ws:// only on loopback).");
             if(!System.Text.RegularExpressions.Regex.IsMatch(room,"^[a-zA-Z0-9_-]{1,64}$") ||
                (role!="host" && role!="viewer") || key.Length<32 || key.Length>256) throw new ArgumentException("Invalid room, role or access key.");
-            this.room=room;this.role=role;this.key=key;
+            // Protocol v3 addresses the room in the path so a relay can route before the upgrade; the key stays in hello.
+            uri=new Uri(server,"/coop/"+room);this.role=role;this.key=key;
         }
         public void Start() { Task.Run((Func<Task>)Loop); }
         public void Publish(Snapshot s) { Publish(s,true,generation); }
@@ -102,6 +103,7 @@ namespace LiveSplit.Coop {
                         if(read.MessageType==WebSocketMessageType.Close) {
                             int code=read.CloseStatus.HasValue?(int)read.CloseStatus.Value:0;
                             if(code==Replaced) replaced=true;
+                            else if(code==UnknownRoom) unknownRoom=true;
                             else if(code==(int)WebSocketCloseStatus.PolicyViolation) { policyClose=true;policyReason=read.CloseStatusDescription; }
                             status="Connection closed; retrying";return;
                         }
@@ -145,7 +147,7 @@ namespace LiveSplit.Coop {
                         }
                         phase=RelayPhase.Joining;status="Joining room";
                         Interlocked.Exchange(ref lastMessage,DateTime.UtcNow.Ticks);
-                        await Send(ws,Json().Serialize(new { type="hello",v=Protocol,room=room,role=role,key=key }),linked.Token).ConfigureAwait(false);
+                        await Send(ws,Json().Serialize(new { type="hello",v=Protocol,role=role,key=key }),linked.Token).ConfigureAwait(false);
                         var reader=Reader(ws,linked.Token);var writer=Writer(ws,linked.Token);
                         var first=await Task.WhenAny(reader,writer).ConfigureAwait(false);
                         linked.Cancel();ws.Abort();
@@ -157,6 +159,7 @@ namespace LiveSplit.Coop {
                 }
                 // Two hosts would otherwise keep replacing each other.
                 if(replaced) { phase=RelayPhase.Stopped;status="Stopped: another host connection took over this room";return; }
+                if(unknownRoom) { phase=RelayPhase.Stopped;status="Stopped: room expired or unknown - check the room or create a new one.";return; }
                 if(policyClose) {
                     status=PolicyStatus(policyReason);
                     bool terminal=PolicyTerminal(policyReason);
