@@ -7,11 +7,11 @@ using System.Xml;
 
 namespace LiveSplit.Coop {
     public sealed class CoopSettings : UserControl {
-        readonly TextBox address=new TextBox { Text="wss://timer.example.com/coop",Width=330 };
-        readonly TextBox room=new TextBox { Text="coop",Width=330 };
-        readonly TextBox key=new TextBox { UseSystemPasswordChar=true,Width=330 };
-        readonly ComboBox role=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=330 };
-        readonly Label status=new Label { AutoSize=true,MaximumSize=new Size(440,0),Text="Disconnected" };
+        readonly TextBox address=new TextBox { Width=290 };
+        readonly TextBox room=new TextBox { Text="coop",Width=290 };
+        readonly TextBox key=new TextBox { UseSystemPasswordChar=true,Width=290 };
+        readonly ComboBox role=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=290 };
+        readonly Label status=new Label { AutoSize=true,MaximumSize=new Size(400,0),Text="Disconnected" };
         public event Action ConnectRequested;
         public event Action DisconnectRequested;
         public string Address { get { return address.Text.Trim(); } }
@@ -19,19 +19,45 @@ namespace LiveSplit.Coop {
         public string Key { get { return key.Text.Trim(); } }
         public string Role { get { return role.SelectedIndex==0?"host":"viewer"; } }
         public CoopSettings() {
-            Size=new Size(470,330);
+            AutoScroll=true;Size=new Size(460,440);
             role.Items.AddRange(new object[]{"Host — publish this timer","Viewer — follow the host"});role.SelectedIndex=1;
-            var grid=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=7,Padding=new Padding(8) };
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,100));grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
-            string[] labels={"Server URL","Room","Role","Access key"};Control[] inputs={address,room,role,key};
-            for(int i=0;i<inputs.Length;i++) { grid.Controls.Add(new Label { Text=labels[i],AutoSize=true },0,i);grid.Controls.Add(inputs[i],1,i); }
+
+            var outer=new TableLayoutPanel { Dock=DockStyle.Top,ColumnCount=1,AutoSize=true,Padding=new Padding(6) };
+
+            var step1=new GroupBox { Text="1. Find the room",AutoSize=true,Dock=DockStyle.Top };
+            var step1Grid=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,AutoSize=true,Padding=new Padding(5) };
+            step1Grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,100));step1Grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+            step1Grid.Controls.Add(new Label { Text="Server URL",AutoSize=true },0,0);step1Grid.Controls.Add(address,1,0);
+            step1Grid.Controls.Add(new Label { Text="Room",AutoSize=true },0,1);step1Grid.Controls.Add(room,1,1);
+            var step1Note=new Label { AutoSize=true,MaximumSize=new Size(390,0),
+                Text="Ask your relay operator for the URL and room name — this component only connects to rooms; it never creates, lists, or invites them." };
+            step1Grid.Controls.Add(step1Note,0,2);step1Grid.SetColumnSpan(step1Note,2);
+            step1.Controls.Add(step1Grid);
+
+            var step2=new GroupBox { Text="2. Identify yourself",AutoSize=true,Dock=DockStyle.Top };
+            var step2Grid=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,AutoSize=true,Padding=new Padding(5) };
+            step2Grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,100));step2Grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+            step2Grid.Controls.Add(new Label { Text="Role",AutoSize=true },0,0);step2Grid.Controls.Add(role,1,0);
+            step2Grid.Controls.Add(new Label { Text="Access key",AutoSize=true },0,1);step2Grid.Controls.Add(key,1,1);
+            var step2Note=new Label { AutoSize=true,MaximumSize=new Size(390,0),
+                Text="Host and Viewer get separate keys from the operator; a Viewer key can't publish. The key stays masked and is never shown on the layout." };
+            step2Grid.Controls.Add(step2Note,0,2);step2Grid.SetColumnSpan(step2Note,2);
+            step2.Controls.Add(step2Grid);
+
+            var step3=new GroupBox { Text="3. Connect",AutoSize=true,Dock=DockStyle.Top };
+            var step3Panel=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,AutoSize=true,Padding=new Padding(5) };
             var buttons=new FlowLayoutPanel { AutoSize=true };
             var connect=new Button { Text="Connect",AutoSize=true };connect.Click+=(s,e)=>{ if(ConnectRequested!=null) ConnectRequested(); };
             var stop=new Button { Text="Disconnect",AutoSize=true };stop.Click+=(s,e)=>{ if(DisconnectRequested!=null) DisconnectRequested(); };
-            buttons.Controls.Add(connect);buttons.Controls.Add(stop);grid.Controls.Add(buttons,1,4);
-            grid.Controls.Add(status,0,5);grid.SetColumnSpan(status,2);
-            var note=new Label { AutoSize=true,MaximumSize=new Size(440,0),Text="Viewers: remove autosplitters from this layout first.\nThe host controls timing. Disconnect restores your original splits.\nKeys are saved encrypted for this Windows user and PC.\nConnections are started manually; no VPN is needed." };
-            grid.Controls.Add(note,0,6);grid.SetColumnSpan(note,2);Controls.Add(grid);
+            buttons.Controls.Add(connect);buttons.Controls.Add(stop);
+            step3Panel.Controls.Add(buttons);step3Panel.Controls.Add(status);
+            step3.Controls.Add(step3Panel);
+
+            var footer=new Label { AutoSize=true,MaximumSize=new Size(410,0),
+                Text="Viewers: remove autosplitters first — the host controls timing and Disconnect restores your splits.\nKeys are encrypted for this Windows user/PC; connect and disconnect manually, no VPN needed." };
+
+            outer.Controls.Add(step1);outer.Controls.Add(step2);outer.Controls.Add(step3);outer.Controls.Add(footer);
+            Controls.Add(outer);
         }
         public void Status(string message) { status.Text=message; }
         static string Read(XmlNode n,string name,string fallback) { var child=n[name];return child==null?fallback:child.InnerText; }

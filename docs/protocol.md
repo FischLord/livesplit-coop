@@ -2,7 +2,7 @@
 
 Transport: UTF-8 JSON text messages over WSS at `/coop`. Maximum message size 256 KiB; no compression. Plain WS is development-only on loopback. Credentials never appear in the URL. Browser Origin requests are rejected; this endpoint is for native clients.
 
-The first message, within five seconds, is `{ "type":"hello", "v":2, "room":"coop", "role":"host|viewer", "key":"..." }`. The relay responds with `ready`. A hello with another version is closed with 1008 and a reason asking to update the component; v1 (0.1.0-beta.1) clients cannot talk to a v2 relay. Room names are preconfigured, not created by unauthenticated traffic. Invalid authentication/messages close with 1008.
+The first message, within five seconds, is `{ "type":"hello", "v":2, "room":"coop", "role":"host|viewer", "key":"..." }`. The relay responds with `ready`. A hello with another version is closed with 1008 and a reason asking to update the component; v1 (0.1.0-beta.1) clients cannot talk to a v2 relay. Room names are preconfigured, not created by unauthenticated traffic. Invalid authentication/messages close with 1008. The component stops reconnecting after invalid authentication, incompatible protocol or other permanent policy violations; room capacity and hello-deadline rejections are temporary and are retried.
 
 A room holds one host and up to eleven viewers; viewers can never take the host's slot. A new connection that authenticates with the host key replaces the current host connection, which is closed with code 4001. The component stops reconnecting after 4001, so two PCs configured as host do not keep replacing each other; a host whose previous socket died silently can publish again at once.
 

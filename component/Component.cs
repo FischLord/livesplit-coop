@@ -74,7 +74,11 @@ namespace LiveSplit.Coop {
             if(mirror!=null) { mirror.Dispose();mirror=null; }
             hasSnapshot=false;SetStatus("Disconnected",Color.Gray);
         }
-        void SetStatus(string message,Color c) { label="Coop: "+message;colour=c;settings.Status(message); }
+        void SetStatus(string message,Color c) { SetStatus(message,message,c); }
+        // hudMessage stays short enough for the layout; detailMessage (settings panel) can carry the full reason.
+        void SetStatus(string hudMessage,string detailMessage,Color c) { label="Coop: "+hudMessage;colour=c;settings.Status(detailMessage); }
+        // Only a terminal Stopped phase is an error colour; Connecting/Joining/Retrying are normal in-progress states.
+        static Color PhaseColor(RelayPhase phase) { return phase==RelayPhase.Stopped?Color.IndianRed:Color.Goldenrod; }
         public void Update(IInvalidator invalidator,LiveSplitState ignored,float width,float height,LayoutMode mode) {
             if(connection!=null) {
                 try {
@@ -89,7 +93,7 @@ namespace LiveSplit.Coop {
                             if(connection.Publish(snapshot,complete,generation) && complete) { publishedGeneration=generation;publishedStructure=structure; }
                             dirty=false;lastPublished=watch.ElapsedMilliseconds;
                         }
-                        SetStatus(connection.Ready?"Host connected":connection.Status,connection.Ready?Color.MediumAquamarine:Color.IndianRed);
+                        SetStatus(connection.Ready?"Host connected":connection.Status,connection.Ready?Color.MediumAquamarine:PhaseColor(connection.Phase));
                     } else {
                         // An autosplitter added while viewing would fight the mirrored timer.
                         if(watch.ElapsedMilliseconds-lastGuard>=1000) { lastGuard=watch.ElapsedMilliseconds;RequireNoAutoSplitter(state); }
@@ -105,7 +109,17 @@ namespace LiveSplit.Coop {
                             if(!live && frozenElapsed<0) frozenElapsed=Math.Min(age,1500);
                             mirror.Render(live?age:Math.Max(0,frozenElapsed),!live);
                         }
-                        SetStatus(live?"Following host":hasSnapshot?"OFFLINE — timer frozen":connection.Ready?"Waiting for host":connection.Status,live?Color.MediumAquamarine:Color.IndianRed);
+                        if(live) SetStatus("Following host",Color.MediumAquamarine);
+                        // A prior snapshot exists but delivery has stalled or stopped: keep the freeze visible without hiding why (retrying vs terminal).
+                        else if(hasSnapshot) {
+                            string hud,detail;
+                            if(!connection.Ready) { hud=connection.Phase==RelayPhase.Stopped?"Stopped — frozen":"Reconnecting — frozen";detail="OFFLINE — timer frozen ("+connection.Status+")"; }
+                            else if(!connection.HostOnline) { hud="Host offline — frozen";detail="OFFLINE — timer frozen (host disconnected from the relay)"; }
+                            else { hud="Host data stale — frozen";detail="OFFLINE — timer frozen (connected, but no fresh updates from host)"; }
+                            SetStatus(hud,detail,PhaseColor(connection.Phase));
+                        }
+                        else if(connection.Ready) SetStatus("Waiting for host",Color.Goldenrod);
+                        else SetStatus(connection.Status,PhaseColor(connection.Phase));
                     }
                 } catch(Exception e) { Disconnect();SetStatus("Stopped: "+e.Message,Color.IndianRed); }
             }

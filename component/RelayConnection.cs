@@ -15,6 +15,7 @@ namespace LiveSplit.Coop {
         // False when only the clock changed since the last taken delivery.
         public bool structural;
     }
+    public enum RelayPhase { Connecting, Joining, Connected, Retrying, Stopped }
     public sealed class RelayConnection : IDisposable {
         public const int Protocol=2;
         const int Replaced=4001;
@@ -29,9 +30,13 @@ namespace LiveSplit.Coop {
         volatile int generation;
         volatile bool ready,hostOnline,replaced;
         volatile string status="Connecting";
+        volatile bool policyClose;
+        volatile string policyReason;
+        volatile RelayPhase phase=RelayPhase.Connecting;
         public bool Ready { get { return ready; } }
         public bool HostOnline { get { return hostOnline; } }
         public string Status { get { return status; } }
+        public RelayPhase Phase { get { return phase; } }
         // Increases with every accepted connection; a new connection needs a complete snapshot first.
         public int Generation { get { return generation; } }
         public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength=262144,RecursionLimit=24 }; }
@@ -76,6 +81,16 @@ namespace LiveSplit.Coop {
             }
         }
         static long? Ticks(object value) { return value==null?(long?)null:Convert.ToInt64(value); }
+        // Room occupied or full and the pre-hello auth timeout are transient: a slot may free up or the
+        // next attempt may simply beat the clock. Everything else needs the user to fix key/version/config.
+        static bool PolicyTerminal(string reason) { return reason!="Room occupied or full" && reason!="Authentication required"; }
+        static string PolicyStatus(string reason) {
+            if(reason=="Authentication failed") return "Stopped: authentication failed - check the room key.";
+            if(reason!=null && reason.StartsWith("Unsupported protocol version",StringComparison.Ordinal)) return "Stopped: unsupported protocol version - update LiveSplit Coop.";
+            if(reason=="Room occupied or full") return "Room occupied or full; retrying";
+            if(reason=="Authentication required") return "Relay closed before credentials arrived; retrying";
+            return "Stopped: relay rejected the connection.";
+        }
         async Task Reader(ClientWebSocket ws,CancellationToken ct) {
             var buffer=new byte[8192];
             Snapshot current=null;
@@ -85,8 +100,10 @@ namespace LiveSplit.Coop {
                     do {
                         read=await ws.ReceiveAsync(new ArraySegment<byte>(buffer),ct).ConfigureAwait(false);
                         if(read.MessageType==WebSocketMessageType.Close) {
-                            if(read.CloseStatus.HasValue && (int)read.CloseStatus.Value==Replaced) replaced=true;
-                            status="Disconnected ("+(read.CloseStatusDescription ?? "server closed")+")";return;
+                            int code=read.CloseStatus.HasValue?(int)read.CloseStatus.Value:0;
+                            if(code==Replaced) replaced=true;
+                            else if(code==(int)WebSocketCloseStatus.PolicyViolation) { policyClose=true;policyReason=read.CloseStatusDescription; }
+                            status="Connection closed; retrying";return;
                         }
                         if(read.MessageType!=WebSocketMessageType.Text || stream.Length+read.Count>262144) throw new InvalidDataException();
                         stream.Write(buffer,0,read.Count);
@@ -94,7 +111,7 @@ namespace LiveSplit.Coop {
                     Interlocked.Exchange(ref lastMessage,DateTime.UtcNow.Ticks);
                     var json=Json();var msg=json.Deserialize<Dictionary<string,object>>(Encoding.UTF8.GetString(stream.ToArray()));
                     object kind;if(msg==null || !msg.TryGetValue("type",out kind)) throw new InvalidDataException();
-                    if((string)kind=="ready") { lock(gate) generation++;ready=true;status="Connected"; }
+                    if((string)kind=="ready") { lock(gate) generation++;ready=true;status="Connected";phase=RelayPhase.Connected; }
                     else if((string)kind=="host") hostOnline=Convert.ToBoolean(msg["online"]);
                     else if((string)kind=="state") {
                         var value=json.ConvertToType<Snapshot>(msg["snapshot"]);
@@ -121,11 +138,12 @@ namespace LiveSplit.Coop {
                 using(var linked=CancellationTokenSource.CreateLinkedTokenSource(cancel.Token)) {
                     socket=ws;
                     try {
-                        status="Connecting";
+                        status="Connecting";phase=RelayPhase.Connecting;
                         using(var timeout=CancellationTokenSource.CreateLinkedTokenSource(linked.Token)) {
                             timeout.CancelAfter(10000);
                             await ws.ConnectAsync(uri,timeout.Token).ConfigureAwait(false);
                         }
+                        phase=RelayPhase.Joining;status="Joining room";
                         Interlocked.Exchange(ref lastMessage,DateTime.UtcNow.Ticks);
                         await Send(ws,Json().Serialize(new { type="hello",v=Protocol,room=room,role=role,key=key }),linked.Token).ConfigureAwait(false);
                         var reader=Reader(ws,linked.Token);var writer=Writer(ws,linked.Token);
@@ -138,8 +156,16 @@ namespace LiveSplit.Coop {
                     finally { ready=false;hostOnline=false;socket=null; }
                 }
                 // Two hosts would otherwise keep replacing each other.
-                if(replaced) { status="Stopped: another host connection took over this room";return; }
-                try { await Task.Delay(3000,cancel.Token).ConfigureAwait(false); } catch(OperationCanceledException) { }
+                if(replaced) { phase=RelayPhase.Stopped;status="Stopped: another host connection took over this room";return; }
+                if(policyClose) {
+                    status=PolicyStatus(policyReason);
+                    bool terminal=PolicyTerminal(policyReason);
+                    policyClose=false;policyReason=null;
+                    if(terminal) { phase=RelayPhase.Stopped;return; }
+                }
+                if(cancel.IsCancellationRequested) return;
+                phase=RelayPhase.Retrying;
+                try { await Task.Delay(3000,cancel.Token).ConfigureAwait(false); } catch(OperationCanceledException) { return; }
             }
         }
         public void Dispose() { cancel.Cancel();var ws=socket;if(ws!=null) ws.Abort();ready=false;hostOnline=false; }
