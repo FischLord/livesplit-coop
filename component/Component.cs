@@ -11,13 +11,13 @@ using LiveSplit.UI.Components;
 
 [assembly: ComponentFactory(typeof(LiveSplit.Coop.Factory))]
 [assembly: System.Reflection.AssemblyVersion("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("0.1.0-beta.2")]
+[assembly: System.Reflection.AssemblyInformationalVersion("0.1.0-beta.3")]
 [assembly: System.Reflection.AssemblyTitle("LiveSplit Coop")]
 
 namespace LiveSplit.Coop {
     public sealed class Factory : IComponentFactory {
         public string ComponentName { get { return "Coop Relay"; } }
-        public string Description { get { return "Share a host timer through your own relay, without a VPN."; } }
+        public string Description { get { return "Share a host timer through the community relay or your own, without a VPN."; } }
         public ComponentCategory Category { get { return ComponentCategory.Control; } }
         public string UpdateName { get { return ComponentName; } }
         public string XMLURL { get { return ""; } }

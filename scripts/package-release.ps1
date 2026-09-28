@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$Version='0.1.0-beta.2')
+param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$Version='0.1.0-beta.3')
 $ErrorActionPreference='Stop'
 if($Version -notmatch '^\d+\.\d+\.\d+(-[a-z0-9.]+)?$'){throw 'Invalid release version.'}
 $root=Split-Path -Parent $PSScriptRoot
@@ -19,7 +19,8 @@ $docs=@('README.md','LICENSE','THIRD_PARTY.md','docs\quickstart.md','docs\setup.
 foreach($destination in @($component,$relay)){foreach($file in $docs){Include $destination $file}}
 New-Item -ItemType Directory -Path (Join-Path $component 'Components') | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'dist\LiveSplit.Coop.dll') -Destination (Join-Path $component 'Components')
-foreach($file in @('compose.yaml','compose.tls.yaml','relay\Dockerfile','relay\package.json','relay\package-lock.json','relay\src\main.mjs','relay\src\server.mjs','relay\src\protocol.mjs','relay\src\create-room.mjs','relay\src\tls.mjs')){Include $relay $file}
+foreach($file in @('compose.yaml','compose.tls.yaml','relay\Dockerfile','relay\package.json','relay\package-lock.json','relay\src\main.mjs','relay\src\server.mjs','relay\src\protocol.mjs','relay\src\create-room.mjs','relay\src\tls.mjs',
+    'relay-cloudflare\README.md','relay-cloudflare\package.json','relay-cloudflare\package-lock.json','relay-cloudflare\wrangler.jsonc','relay-cloudflare\src\index.mjs')){Include $relay $file}
 Add-Type -AssemblyName System.IO.Compression,System.IO.Compression.FileSystem
 function Archive([string]$folder,[string]$path) {
     $zip=[IO.Compression.ZipFile]::Open($path,[IO.Compression.ZipArchiveMode]::Create)
