@@ -1,6 +1,6 @@
 # Feature-Plan: Community-Relay auf Cloudflare Durable Objects
 
-**Status:** in Umsetzung, Phase 1 erledigt · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
+**Status:** in Umsetzung, Phasen 1–2 lokal erledigt (`relay-cloudflare/`), noch nicht deployt · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
 
 ## Ziel
 
