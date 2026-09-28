@@ -1,6 +1,6 @@
 # Feature-Plan: Community-Relay auf Cloudflare Durable Objects
 
-**Status:** in Umsetzung, Phasen 1–2 lokal erledigt (`relay-cloudflare/`), noch nicht deployt · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
+**Status:** Phasen 1–3 erledigt; Relay deployt unter `livesplit-coop-relay.janneck.workers.dev` (geschlossene Beta) · offen: Test über das öffentliche Netz, Phase 4–5 · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
 
 ## Ziel
 
@@ -145,7 +145,7 @@ Keine Rechtsberatung, sondern Punkte, die vor dem öffentlichen Start geklärt s
 - Räume verfallen nach 7 Tagen ohne Aktivität.
 - Cloudflare-Account ist vorhanden.
 
-Umsetzung Phase 1 abweichend vom Entwurf: `hello` enthält keinen Raum mehr, und der nackte Pfad `/coop` bleibt nur offen, damit v1/v2-Clients die Update-Meldung erhalten. `POST /rooms` liefert `idleExpiryDays` statt `expiresAt`, weil der Ablauf an Inaktivität hängt. Der Einladungscode folgt in Phase 3.
+Umsetzung Phase 1 abweichend vom Entwurf: `hello` enthält keinen Raum mehr, und der nackte Pfad `/coop` bleibt nur offen, damit v1/v2-Clients die Update-Meldung erhalten. `POST /rooms` liefert `idleExpiryDays` statt `expiresAt`, weil der Ablauf an Inaktivität hängt. Phase 3: Einladungscode `lscoop:1:<server>/<room>#<viewerKey>` (die Server-URL steht im Code, damit auch eigene Relays funktionieren). Die Server-URL ist für neue Komponenten auf den Community-Relay voreingestellt; bestehende Layouts behalten ihre Adresse.
 
 ## Ursprünglich offene Entscheidungen
 
