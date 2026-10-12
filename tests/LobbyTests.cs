@@ -236,6 +236,19 @@ public static class LobbyTests {
             Check(component.SavedPassword=="banane","host can read its saved password");
             component.Leave();
             Check(component.Lobby==null && LocalState.Load(path).lobby==null && !component.Connected,"leave forgets the lobby on disk");
+            Check(component.StatusLine==Texts.T("status.notConnected"),"status says not in a lobby right after leave: "+component.StatusLine);
+            component.Update(null,state,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(component.StatusLine==Texts.T("status.notConnected"),"status stays at not in a lobby after the next update: "+component.StatusLine);
+        }
+        // A role change in the layout settings drops the connection of the old role.
+        new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);
+        var roleState=NewState();
+        using(var component=new CoopComponent(roleState,path)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            Check(Until(()=>{component.Update(null,roleState,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.Connected;}),"host connects before the role change");
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            component.Update(null,roleState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(!component.Connected && component.Viewers==-1 && component.StatusLine==Texts.T("status.notConnected"),"changing the role disconnects: "+component.StatusLine);
         }
         File.Delete(path);
         var migrated=NewState();
@@ -244,7 +257,13 @@ public static class LobbyTests {
             var saved=LocalState.Load(path).lobby;
             Check(saved!=null && saved.roomId=="oldroom" && saved.role=="viewer" && saved.name==null,"legacy viewer room migrates into coop-local.json");
             Check(component.StatusLine.StartsWith(Texts.T("status.inviteRoom")),"migrated rooms are labelled as invitation rooms: "+component.StatusLine);
+            component.Leave();
         }
-        Check(new CoopComponent(NewState(),path).ContextMenuControls.Keys.SequenceEqual(new[]{Texts.T("menu.coop")}),"the context menu has a single Coop entry");
+        using(var component=new CoopComponent(NewState(),path)) {
+            component.SetSettings(Xml("<Version>1</Version><Address>wss://relay.example/coop</Address><Room>oldroom</Room><Role>viewer</Role><ProtectedKey>"+LocalState.Protect(new string('k',43))+"</ProtectedKey><ProtectedInviteKey></ProtectedInviteKey>"));
+            Check(component.Lobby==null && LocalState.Load(path).lobby==null,"a legacy room that was left is not migrated again");
+        }
+        using(var component=new CoopComponent(NewState(),path))
+            Check(component.ContextMenuControls.Keys.SequenceEqual(new[]{Texts.T("menu.coop")}),"the context menu has a single Coop entry");
     }
 }

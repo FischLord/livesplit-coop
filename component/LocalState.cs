@@ -28,6 +28,8 @@ namespace LiveSplit.Coop {
         public int version=1;
         public string server,lastProfile;
         public LobbyState lobby;
+        // Room ids of layout-stored rooms that were already moved here, so leaving one does not bring it back.
+        public System.Collections.Generic.List<string> migratedLegacyRooms;
         public static string DefaultPath { get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"coop-local.json"); } }
         public static LocalState Load(string path) {
             if(!File.Exists(path)) return new LocalState();

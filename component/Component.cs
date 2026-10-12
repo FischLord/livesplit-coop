@@ -56,7 +56,7 @@ namespace LiveSplit.Coop {
         // The local state path is injectable for tests.
         public CoopComponent(LiveSplitState state,string localPath) {
             this.state=state;this.localPath=localPath;local=LocalState.Load(localPath);
-            settings.OpenRequested+=OpenWindow;
+            settings.OpenRequested+=()=>OpenWindow(settings.FindForm() ?? state.Form);
             state.OnStart+=Started;state.OnSplit+=Split;state.OnUndoSplit+=Undo;state.OnSkipSplit+=Skip;
             state.OnPause+=Paused;state.OnResume+=Resumed;state.OnReset+=Reset;
             CoopDiagnostics.Write("component_loaded",new { component=diagnosticId });
@@ -84,9 +84,9 @@ namespace LiveSplit.Coop {
         // Returns what the user must change before viewing, or null. Says where to click, since the two cases live in different dialogs.
         public static string AutoSplitterProblem(LiveSplitState state) {
             if(state.Run.AutoSplitter!=null && state.Run.AutoSplitter.IsActivated)
-                return "Viewer: turn off the autosplitter first. Right-click → Edit Splits → Deactivate, then click Connect again.";
+                return Texts.T("viewer.autosplitterOn");
             if(state.Layout!=null && state.Layout.Components.Any(c=>IsAutoSplitter(c.GetType())))
-                return "Viewer: remove \"Scriptable Auto Splitter\" from this layout first (right-click → Edit Layout → select it → −), then click Connect again.";
+                return Texts.T("viewer.autosplitterLayout");
             return null;
         }
         static void RequireNoAutoSplitter(LiveSplitState state) {
@@ -121,14 +121,14 @@ namespace LiveSplit.Coop {
             local.lobby=LobbyState.FromLegacy(server,room,"viewer",key,"");SaveLocal();Connect();return true;
         }
         public void Reconnect() { Connect(); }
-        public void Leave() { Disconnect();local.lobby=null;SaveLocal(); }
+        public void Leave() { local.lobby=null;Disconnect();SaveLocal(); }
         void SaveLocal() {
             try { local.Save(localPath); }
             catch(Exception e) { CoopDiagnostics.Error("local_state",e); }
         }
         string LobbyTitle() { var lobby=Lobby;return lobby==null?"":lobby.name ?? Texts.T("status.inviteRoom"); }
-        void OpenWindow() {
-            using(var window=new CoopWindow(this,null)) window.ShowDialog(state.Form);
+        void OpenWindow(IWin32Window owner) {
+            using(var window=new CoopWindow(this,null)) window.ShowDialog(owner);
         }
         public void Connect() {
             Disconnect();
@@ -163,13 +163,15 @@ namespace LiveSplit.Coop {
                 lastRainbowUpdate=watch.ElapsedMilliseconds;
                 if(rainbowGraph.Update(state) && state.Form!=null)state.Form.Invalidate();
             }
+            // The role is set per layout; a connection made for the other role would publish or mirror against the wrong timer.
+            if(connection!=null && role!=Role) { Disconnect();if(Lobby!=null) Connect(); }
             if(connection!=null) {
                 try {
                     if(role=="host") {
                         if(!Object.ReferenceEquals(publishingRun,state.Run)) { publishingRun=state.Run;runId=Guid.NewGuid().ToString("N");dirty=true; }
                         if(connection.Ready && (dirty || watch.ElapsedMilliseconds-lastPublished>=250)) {
                             var snapshot=Snapshot.Capture(state,runId,attemptId,++sequence);
-                            if(!snapshot.Valid()) throw new InvalidOperationException("Run exceeds supported limits or contains unsupported metadata.");
+                            if(!snapshot.Valid()) throw new InvalidOperationException(Texts.T("detail.tooLarge"));
                             // Complete snapshots only when something besides the clock changed or after a reconnect.
                             int generation=connection.Generation;string structure=snapshot.StructureKey();
                             bool complete=generation!=publishedGeneration || structure!=publishedStructure;
@@ -201,16 +203,16 @@ namespace LiveSplit.Coop {
                         // A prior snapshot exists but delivery has stalled or stopped: keep the freeze visible without hiding why (retrying vs terminal).
                         else if(hasSnapshot) {
                             string hud,detail;
-                            if(!connection.Ready) { hud=LobbyTitle()+" · "+(connection.Phase==RelayPhase.Stopped?CoopWindow.Explain(connection.StopReason):Texts.T("status.reconnecting"));detail="OFFLINE — timer frozen ("+connection.Status+")"; }
-                            else if(!connection.HostOnline) { hud=LobbyTitle()+" · "+Texts.T("status.hostOffline");detail="OFFLINE — timer frozen (host disconnected from the relay)"; }
-                            else { hud=LobbyTitle()+" · "+Texts.T("status.stale");detail="OFFLINE — timer frozen (connected, but no fresh updates from host)"; }
+                            if(!connection.Ready) { hud=LobbyTitle()+" · "+(connection.Phase==RelayPhase.Stopped?CoopWindow.Explain(connection.StopReason):Texts.T("status.reconnecting"));detail=Texts.T("detail.offline",connection.Status); }
+                            else if(!connection.HostOnline) { hud=LobbyTitle()+" · "+Texts.T("status.hostOffline");detail=Texts.T("detail.hostGone"); }
+                            else { hud=LobbyTitle()+" · "+Texts.T("status.stale");detail=Texts.T("detail.noUpdates"); }
                             SetStatus(hud,detail,PhaseColor(connection.Phase));
                         }
                         else if(connection.Ready) SetStatus(LobbyTitle()+" · "+Texts.T("status.waiting"),Color.Goldenrod);
                         else SetStatus(LobbyTitle()+" · "+(connection.StopReason!=null?CoopWindow.Explain(connection.StopReason):Texts.T("status.reconnecting")),connection.Status,PhaseColor(connection.Phase));
                     }
-                } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus("Stopped: autosplitter on",e.Message,Color.IndianRed); }
-                catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus("Stopped: "+e.Message,Color.IndianRed); }
+                } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus(Texts.T("status.stoppedAutosplitter"),e.Message,Color.IndianRed); }
+                catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus(Texts.T("status.stopped",e.Message),Color.IndianRed); }
             }
             if(invalidator!=null) invalidator.Invalidate(0,0,width,height);
         }
@@ -223,7 +225,7 @@ namespace LiveSplit.Coop {
         public float PaddingBottom { get { return 0; } }
         public float PaddingLeft { get { return 0; } }
         public float PaddingRight { get { return 0; } }
-        public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action> { { Texts.T("menu.coop"),OpenWindow } }; } }
+        public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action> { { Texts.T("menu.coop"),()=>OpenWindow(state.Form) } }; } }
         public void ExportDiagnostics(IWin32Window owner) {
             using(var dialog=new SaveFileDialog { Title="Export Coop diagnostics",Filter="Diagnostic log (*.jsonl)|*.jsonl",DefaultExt="jsonl",AddExtension=true,
                 FileName="LiveSplit-Coop-diagnostics-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".jsonl" }) {
@@ -250,8 +252,10 @@ namespace LiveSplit.Coop {
         public void SetSettings(XmlNode node) {
             settings.LoadXml(node);
             // Rooms saved in layouts by older versions move to coop-local.json once.
-            if(settings.Legacy!=null && local.lobby==null) {
+            if(settings.Legacy!=null && local.lobby==null && (local.migratedLegacyRooms==null || !local.migratedLegacyRooms.Contains(settings.Legacy.roomId))) {
                 var legacy=settings.Legacy;
+                if(local.migratedLegacyRooms==null) local.migratedLegacyRooms=new List<string>();
+                local.migratedLegacyRooms.Add(legacy.roomId);
                 local.lobby=LobbyState.FromLegacy(legacy.server,legacy.roomId,legacy.role,legacy.key,legacy.inviteKey);SaveLocal();
                 CoopDiagnostics.Write("legacy_room_migrated",new { component=diagnosticId,role=legacy.role });
             }
