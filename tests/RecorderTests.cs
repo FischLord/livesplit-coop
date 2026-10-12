@@ -23,6 +23,7 @@ public static class RecorderTests {
     public static void Run(string work) {
         Texts.German=false;
         FileTests(work);
+        LibraryTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void FileTests(string work) {
@@ -41,5 +42,38 @@ public static class RecorderTests {
         Check(!RunFiles.SameSegments(loaded,host),"different segment names do not match");
         RunFiles.Save(loaded,path);
         Check(RunFiles.Load(path).Count==3,"saving over an existing file works");
+    }
+    static void LibraryTests(string work) {
+        string fallback=Path.Combine(work,"lib","Splits","Coop");
+        var plain=new ViewerLibrary(null,fallback);
+        var s=Snap("a1","NotRunning",-1,None,None,None,null);
+        Check(plain.PathFor(s)==Path.Combine(fallback,"Test Game","Any% (Duo).lss"),"without a pack splits go to Splits/Coop/<game>/<category> (<variables>).lss: "+plain.PathFor(s));
+        s.game="Bad:Name?";s.category="A/B";
+        Check(plain.PathFor(s)==Path.Combine(fallback,"Bad_Name_","A_B (Duo).lss"),"invalid file name characters are replaced");
+        s.runVariables=null;
+        Check(plain.PathFor(s)==Path.Combine(fallback,"Bad_Name_","A_B.lss"),"runs without variables have no suffix");
+        string target=Path.Combine(work,"lib","x","Duo.lss");
+        string pending=plain.PendingPath(target);
+        Check(Path.GetDirectoryName(pending)==Path.Combine(fallback,"Pending") && Path.GetFileName(pending).StartsWith("Duo-") && pending.EndsWith(".lss"),"pending copies live under Splits/Coop/Pending");
+        Check(plain.PendingPath(target)==pending && plain.PendingPath(Path.Combine(work,"lib","y","Duo.lss"))!=pending,"pending names are stable per target and distinct across targets");
+        // Pack lookup: written by Plan 3's ProfilePack.Match.
+        Directory.CreateDirectory(Path.Combine(work,"lib","pack"));
+        File.WriteAllText(Path.Combine(work,"lib","pack","coop-profiles.json"),@"{""version"":1,""game"":""Test Game"",""dimensions"":[{""id"":""p"",""label"":{""en"":""P"",""de"":""P""},""options"":[{""id"":""duo"",""label"":""Duo""}]}],
+            ""profiles"":[{""select"":{""p"":""duo""},""splits"":""Splits/Duo.lss"",""layout"":""Layouts/Host.lsl"",""category"":""Any%"",""variables"":{""Number of Players"":""Duo""}}]}");
+        var pack=ProfilePack.Load(Path.Combine(work,"lib","pack","coop-profiles.json"));
+        var withPack=new ViewerLibrary(pack,fallback);
+        Check(withPack.PathFor(Snap("a1","NotRunning",-1,None,None,None,null))==pack.FullPath("Splits/Duo.lss"),"a matching pack profile is used");
+        // Host lock
+        string splits=Path.Combine(work,"lib","locked.lss");File.WriteAllText(splits,"x");
+        Check(!HostLock.IsHeld(splits),"no lock file means not held");
+        using(HostLock.Hold(splits)) {
+            Check(HostLock.IsHeld(splits),"a held lock is seen");
+            Check((File.GetAttributes(HostLock.PathFor(splits)) & FileAttributes.Hidden)!=0,"lock files are hidden");
+        }
+        Check(!File.Exists(HostLock.PathFor(splits)) && !HostLock.IsHeld(splits),"releasing removes the lock");
+        File.WriteAllText(HostLock.PathFor(splits),"999999");
+        Check(!HostLock.IsHeld(splits),"a lock from a process that no longer exists is ignored");
+        File.WriteAllText(HostLock.PathFor(splits),"garbage");
+        Check(!HostLock.IsHeld(splits),"an unreadable lock is ignored");
     }
 }
