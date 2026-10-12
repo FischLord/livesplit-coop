@@ -19,6 +19,7 @@ namespace LiveSplit.Coop {
         readonly Panel inviteRow=new FlowLayoutPanel { AutoSize=true,Visible=false,Margin=new Padding(0) };
         // The viewer key of a room this host created, kept so the invite can be copied again later.
         string inviteKey="";
+        string cachedKey,cachedProtectedKey,cachedInvite,cachedProtectedInvite;
         public event Action ConnectRequested;
         public event Action DisconnectRequested;
         // Set by the component: why this layout cannot view yet, or null.
@@ -149,18 +150,31 @@ namespace LiveSplit.Coop {
         // Keys are bound to this Windows user and PC; a layout copied elsewhere needs them entered again.
         static string Protect(string value) { return value.Length==0?"":Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value),null,DataProtectionScope.CurrentUser)); }
         static string Unprotect(string value) { return value.Length==0?"":Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(value),null,DataProtectionScope.CurrentUser)); }
+        // DPAPI adds randomness. LiveSplit compares serialized layouts each frame;
+        // re-encrypting unchanged keys forces full redraws forever, and the native
+        // Graph ignores Update(null, ...), so its data never gets calculated.
+        static string StableProtect(string value,ref string previous,ref string encrypted) {
+            if(encrypted==null || value!=previous) {encrypted=Protect(value);previous=value;}
+            return encrypted;
+        }
         static string Read(XmlNode n,string name,string fallback) { var child=n[name];return child==null?fallback:child.InnerText; }
         public void LoadXml(XmlNode n) {
             address.Text=Read(n,"Address",address.Text);room.Text=Read(n,"Room","coop");role.SelectedIndex=Read(n,"Role","viewer")=="host"?0:1;
             key.Text=inviteKey="";
-            try { key.Text=Unprotect(Read(n,"ProtectedKey",""));inviteKey=Unprotect(Read(n,"ProtectedInviteKey","")); }
+            try {
+                var protectedKey=Read(n,"ProtectedKey","");var protectedInvite=Read(n,"ProtectedInviteKey","");
+                key.Text=Unprotect(protectedKey);inviteKey=Unprotect(protectedInvite);
+                cachedKey=Key;cachedProtectedKey=protectedKey;
+                cachedInvite=inviteKey;cachedProtectedInvite=protectedInvite;
+            }
             catch { status.Text="Please enter the access key on this PC."; }
             ShowInvite();
         }
         public XmlNode SaveXml(XmlDocument doc) {
             var node=doc.CreateElement("Settings");
             var values=new[]{new[]{"Version","1"},new[]{"Address",Address},new[]{"Room",Room},new[]{"Role",Role},
-                new[]{"ProtectedKey",Protect(Key)},new[]{"ProtectedInviteKey",Role=="host"?Protect(inviteKey):""}};
+                new[]{"ProtectedKey",StableProtect(Key,ref cachedKey,ref cachedProtectedKey)},
+                new[]{"ProtectedInviteKey",Role=="host"?StableProtect(inviteKey,ref cachedInvite,ref cachedProtectedInvite):""}};
             foreach(var item in values) { var child=doc.CreateElement(item[0]);child.InnerText=item[1];node.AppendChild(child); }return node;
         }
     }

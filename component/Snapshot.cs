@@ -26,6 +26,8 @@ namespace LiveSplit.Coop {
         public long? realTicks, gameTicks;
         public bool gamePaused;
         public SegmentData[] segments;
+        // Optional v3 field: older hosts omit it and older viewers ignore it.
+        public Dictionary<string,string> runVariables;
         public static Snapshot Capture(LiveSplitState s,string runId,string attemptId,long seq) {
             var time=s.CurrentTime;
             return new Snapshot {
@@ -34,6 +36,7 @@ namespace LiveSplit.Coop {
                 timingMethod=s.CurrentTimingMethod.ToString(),comparison=s.CurrentComparison ?? "Personal Best",
                 offsetTicks=s.Run.Offset.Ticks,realTicks=Pair.Tick(time.RealTime),gameTicks=Pair.Tick(time.GameTime),
                 gamePaused=s.IsGameTimePaused,
+                runVariables=RunProfile.Variables(s.Run),
                 segments=s.Run.Select(seg => new SegmentData {
                     name=seg.Name,splitRT=Pair.Tick(seg.SplitTime.RealTime),splitGT=Pair.Tick(seg.SplitTime.GameTime),
                     pbRT=Pair.Tick(seg.PersonalBestSplitTime.RealTime),pbGT=Pair.Tick(seg.PersonalBestSplitTime.GameTime),
@@ -53,6 +56,7 @@ namespace LiveSplit.Coop {
         static bool T(long? t) { return !t.HasValue || (t>=-Limit && t<=Limit); }
         static bool Text(string t,int max) { return t!=null && t.Length<=max && !t.Any(char.IsControl); }
         public bool Valid() {
+            if(runVariables!=null && (runVariables.Count>32 || runVariables.Any(kv=>!Text(kv.Key,100) || !Text(kv.Value,200)))) return false;
             if(type!="snapshot" || v!=RelayConnection.Protocol || seq<0 || !Text(runId,80) || !Text(attemptId,80) ||
                !Text(game,200) || !Text(category,200) || !Text(comparison,100) || attempts<0 ||
                !T(offsetTicks) || !T(realTicks) || !T(gameTicks) || segments==null || segments.Length<1 || segments.Length>256 ||
@@ -97,6 +101,8 @@ namespace LiveSplit.Coop {
                 state.Run=expected=run;runId=s.runId;
             }
             state.Run.GameName=s.game;state.Run.CategoryName=s.category;
+            state.Run.Metadata.VariableValueNames.Clear();
+            if(s.runVariables!=null) foreach(var kv in s.runVariables) state.Run.Metadata.VariableValueNames[kv.Key]=kv.Value;
             state.Run.AttemptCount=s.attempts;state.Run.Offset=TimeSpan.FromTicks(s.offsetTicks);
             for(int i=0;i<s.segments.Length;i++) {
                 var data=s.segments[i];var seg=state.Run[i];

@@ -44,6 +44,8 @@ namespace LiveSplit.Coop {
         double frozenElapsed=-1;
         long initialAge;
         bool dirty=true,hasSnapshot;
+        readonly RainbowGraph rainbowGraph=new RainbowGraph();
+        long lastRainbowUpdate=-100;
         string quickNotice;long quickNoticeUntil;
         Color colour=Color.Gray;
         public CoopComponent(LiveSplitState state) {
@@ -108,6 +110,10 @@ namespace LiveSplit.Coop {
         // Only a terminal Stopped phase is an error colour; Connecting/Joining/Retrying are normal in-progress states.
         static Color PhaseColor(RelayPhase phase) { return phase==RelayPhase.Stopped?Color.IndianRed:Color.Goldenrod; }
         public void Update(IInvalidator invalidator,LiveSplitState ignored,float width,float height,LayoutMode mode) {
+            if(watch.ElapsedMilliseconds-lastRainbowUpdate>=100) {
+                lastRainbowUpdate=watch.ElapsedMilliseconds;
+                if(rainbowGraph.Update(state) && state.Form!=null)state.Form.Invalidate();
+            }
             if(connection!=null) {
                 try {
                     if(role=="host") {
@@ -214,8 +220,14 @@ namespace LiveSplit.Coop {
             else using(var dialog=new InvitationDialog(settings,feedback))dialog.ShowDialog(state.Form);
         }
         void Draw(Graphics g,float width,float height) {
-            using(var brush=new SolidBrush(colour)) using(var format=new StringFormat { Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap })
-                g.DrawString(label,font,brush,new RectangleF(4,2,width-8,height-2),format);
+            string players=settings.Role=="viewer" && !hasSnapshot?"Players: ?":RunProfile.CategoryLabel(state.Run);
+            float badge=Math.Min(width/2,g.MeasureString(players,font).Width+12);
+            using(var brush=new SolidBrush(colour)) using(var format=new StringFormat { Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap }) {
+                g.DrawString(label,font,brush,new RectangleF(4,2,Math.Max(0,width-badge-8),height-2),format);
+                format.Alignment=StringAlignment.Far;
+                brush.Color=Color.FromArgb(88,214,207);
+                g.DrawString(players,font,brush,new RectangleF(width-badge,2,badge-4,height-2),format);
+            }
         }
         public void DrawVertical(Graphics g,LiveSplitState s,float width,Region clip) { Draw(g,width,VerticalHeight); }
         public void DrawHorizontal(Graphics g,LiveSplitState s,float height,Region clip) { Draw(g,HorizontalWidth,height); }
