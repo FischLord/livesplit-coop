@@ -65,8 +65,8 @@ public static class DiagnosticsTests {
         var run=new Run(new StandardComparisonGeneratorsFactory());run.Add(new Segment(secret));run.Add(new Segment("Finish"));
         run.GameName=secret;run.CategoryName=secret;
         var state=new LiveSplitState(run,null,new Layout(),new LayoutSettings(),new Settings());
-        using(var component=new CoopComponent(state)) {
-            Check(component.ContextMenuControls.ContainsKey("Coop: Export diagnostics..."),"diagnostic export is available in context menu");
+        using(var component=new CoopComponent(state,Path.Combine(root,"coop-local.json"))) {
+            Check(component.ContextMenuControls.ContainsKey(Texts.T("menu.coop")),"the Coop window is available in the context menu");
             var model=new TimerModel { CurrentState=state };
             model.Start();model.Split();model.Pause();model.Pause();model.Split();model.Reset();
         }

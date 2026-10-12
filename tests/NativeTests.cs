@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -85,21 +86,23 @@ public static class NativeTests {
         }) { IsBackground=true }.Start();
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
-    public static void Run(string url) { Run(url,"test",new string('h',32),new string('v',32));RunInvites(url); }
-    // Answers one plain HTTP request with the given status, like a relay that does not offer room creation.
-    static int HttpStatusServer(int code) {
-        var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
-        new Thread(()=>{
-            using(var client=listener.AcceptTcpClient())
-            using(var stream=client.GetStream()) {
-                var request=new StringBuilder();var one=new byte[1];
-                while(!request.ToString().EndsWith("\r\n\r\n") && stream.Read(one,0,1)==1) request.Append((char)one[0]);
-                var reply=Encoding.ASCII.GetBytes("HTTP/1.1 "+code+" X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");stream.Write(reply,0,reply.Length);
-            }
-            listener.Stop();
-        }) { IsBackground=true }.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    public sealed class Room { public string server,room,hostKey,viewerKey; }
+    // POST <server>/rooms on the Node fixture (the production relay uses /lobbies instead); blocking.
+    static Room CreateRoom(string server) {
+        var uri=new Uri(server);
+        var endpoint=new UriBuilder(uri) { Scheme="http",Path="/rooms",Port=uri.Port }.Uri;
+        var request=(HttpWebRequest)WebRequest.Create(endpoint);
+        request.Method="POST";request.ContentLength=0;request.Timeout=15000;request.AllowAutoRedirect=false;
+        string body;
+        using(var response=(HttpWebResponse)request.GetResponse())
+        using(var reader=new StreamReader(response.GetResponseStream(),Encoding.UTF8)) {
+            if(response.StatusCode!=HttpStatusCode.Created) throw new InvalidOperationException("The fixture answered "+(int)response.StatusCode);
+            body=reader.ReadToEnd();
+        }
+        var data=RelayConnection.Json().Deserialize<Dictionary<string,object>>(body);
+        return new Room { server=server,room=(string)data["roomId"],hostKey=(string)data["hostKey"],viewerKey=(string)data["viewerKey"] };
     }
+    public static void Run(string url) { Run(url,"test",new string('h',32),new string('v',32));RunInvites(url); }
     // Room creation and invites need a relay started with room creation, so they only run against the local fixture.
     public static void RunInvites(string url) {
         string server,room,key;
@@ -112,8 +115,8 @@ public static class NativeTests {
             "lscoop:1:wss://relay.example/coop/r1#short","lscoop:1:wss://relay.example/coop/r1?x=1#"+new string('k',32),
             "lscoop:1:wss://user@relay.example/coop/r1#"+new string('k',32),"lscoop:1:wss://relay.example/coop/bad room#"+new string('k',32),""})
             Check(!Invite.TryParse(bad,out server,out room,out key),"invalid invite is refused: "+(bad.Length>40?bad.Substring(0,40)+"...":bad));
-        var grant=Invite.Create(url);
-        Check(grant.room.Length==22 && grant.hostKey!=grant.viewerKey && grant.server==url,"Create room returns a new room with separate host and viewer keys");
+        var grant=CreateRoom(url);
+        Check(grant.room.Length==22 && grant.hostKey!=grant.viewerKey && grant.server==url,"a created room has separate host and viewer keys");
         Check(Invite.TryParse(Invite.Format(grant.server,grant.room,grant.viewerKey),out server,out room,out key) && room==grant.room && key==grant.viewerKey,"the created room's invite carries only the viewer key");
         using(var publisher=new RelayConnection(url,grant.room,"host",grant.hostKey))
         using(var viewer=new RelayConnection(server,room,"viewer",key)) {
@@ -126,12 +129,6 @@ public static class NativeTests {
             wrongKey.Start();Wait(()=>wrongKey.Phase==RelayPhase.Stopped,"viewer key cannot host");
             Check(!wrongKey.Ready,"the invite's viewer key cannot take the host slot");
         }
-        try { Invite.Create("ws://127.0.0.1:"+HttpStatusServer(404)+"/coop");Check(false,"404 must fail"); }
-        catch(InvalidOperationException e) { Check(e.Message.Contains("does not create rooms"),"a relay without room creation gets a clear hint"); }
-        try { Invite.Create("ws://127.0.0.1:"+HttpStatusServer(429)+"/coop");Check(false,"429 must fail"); }
-        catch(InvalidOperationException e) { Check(e.Message.Contains("Wait a minute"),"a rate-limited Create room asks to wait"); }
-        try { Invite.Create("ws://relay.example/coop");Check(false,"plain ws must fail"); }
-        catch(ArgumentException) { Check(true,"Create room refuses unencrypted remote servers"); }
         Console.WriteLine("Native checks passed: "+passed);
     }
     public static void Run(string url,string room,string hostKey,string viewerKey) {
