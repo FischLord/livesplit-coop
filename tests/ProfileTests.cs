@@ -50,6 +50,7 @@ public static class ProfileTests {
         PackTests(work);
         PreparerTests(work);
         SwitcherTests(work);
+        SectionTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void PackTests(string work) {
@@ -150,5 +151,35 @@ public static class ProfileTests {
         Check(restarted!=null && restarted[0]==pack.FullPath(b.splits) && restarted[1]==pack.FullPath(b.layout) && commits==3,"restart gets the prepared profile and commits");
         var running=NewState();var timer=new TimerModel{CurrentState=running};timer.Start();
         Check(ProfileSwitcher.Switch(running,new FakeForm{state=running},pack,b,()=>commits++,null)==ProfileSwitcher.Result.Running && commits==3,"a running timer blocks switching");
+    }
+    static readonly BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+    static Control Find(Control parent,string name){foreach(Control c in parent.Controls){if(c.Name==name)return c;var child=Find(c,name);if(child!=null)return child;}return null;}
+    static void Click(Control c){c.GetType().GetMethod("OnClick",Hidden,null,new[]{typeof(EventArgs)},null).Invoke(c,new object[]{EventArgs.Empty});}
+    static void Pick(ComboBox box,string label){box.SelectedIndex=box.Items.Cast<object>().ToList().FindIndex(i=>i.ToString()==label);}
+    static void SectionTests(string work) {
+        var pack=ProfilePack.Load(Path.Combine(MakePack(work,"section"),"coop-profiles.json"));
+        var current=pack.ByKey("a|g");
+        using(var form=new Form()) {
+            var section=new ProfileSection(pack,current,false,null,false);form.Controls.Add(section);form.Show();Application.DoEvents();
+            var map=(ComboBox)Find(section,"dim_map");var rules=(ComboBox)Find(section,"dim_rules");var load=(Button)Find(section,"loadProfile");
+            Check(map.SelectedItem.ToString()=="Map A" && rules.SelectedItem.ToString()=="Glitched","current profile is preselected");
+            Check(!load.Enabled && Find(section,"profileHint").Text==Texts.T("profile.current"),"the loaded profile cannot be loaded again");
+            Pick(map,"Map B");Pick(rules,"Glitched");
+            Check(!load.Enabled && Find(section,"profileHint").Text==Texts.T("profile.missing"),"missing combinations are explained");
+            Pick(rules,"No Major Glitches");
+            Check(load.Enabled && Find(section,"profileHint").Text=="","an existing other profile can be loaded");
+            Click(load);
+            Check(section.Chosen==pack.ByKey("b|nmg"),"load chooses the selected profile");
+        }
+        using(var form=new Form()) {
+            var section=new ProfileSection(pack,null,false,null,true);form.Controls.Add(section);form.Show();Application.DoEvents();
+            Check(!((Button)Find(section,"loadProfile")).Enabled && Find(section,"profileHint").Text==Texts.T("profile.running"),"a running timer blocks loading");
+            Check(((ComboBox)Find(section,"dim_map")).SelectedIndex==0,"without a current profile the first options are selected");
+        }
+        using(var form=new Form()) {
+            var section=new ProfileSection(pack,null,true,"Duo / Fullgame",false);form.Controls.Add(section);form.Show();Application.DoEvents();
+            Check(Find(section,"dim_map")==null && Find(section,"profileFromHost").Text==Texts.T("profile.fromHost","Duo / Fullgame"),"viewers only see the host's profile");
+        }
+        foreach(var key in new[]{"profile.load","profile.fromHost","profile.running","profile.missing","profile.current","profile.failed"}) Check(Texts.Has(key),"text exists: "+key);
     }
 }

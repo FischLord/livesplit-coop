@@ -73,7 +73,14 @@ namespace LiveSplit.Coop {
             {"settings.roleHost",new[]{"Host - this timer measures","Host - dieser Timer misst"}},
             {"settings.roleViewer",new[]{"Viewer - follow the host","Viewer - dem Host folgen"}},
             {"settings.open",new[]{"Open coop window...","Coop-Fenster öffnen..."}},
-            {"settings.note",new[]{"Lobbies are managed in the coop window (right-click > Coop...). Layouts no longer store room keys.","Lobbys verwaltest du im Coop-Fenster (Rechtsklick > Coop...). Layouts speichern keine Raumschlüssel mehr."}}
+            {"settings.note",new[]{"Lobbies are managed in the coop window (right-click > Coop...). Layouts no longer store room keys.","Lobbys verwaltest du im Coop-Fenster (Rechtsklick > Coop...). Layouts speichern keine Raumschlüssel mehr."}},
+            {"profile.load",new[]{"Load profile","Profil laden"}},
+            {"profile.fromHost",new[]{"Profile comes from the host: {0}","Profil kommt vom Host: {0}"}},
+            {"profile.unknown",new[]{"not known yet","noch unbekannt"}},
+            {"profile.running",new[]{"Finish or reset the run first.","Erst Run beenden oder resetten."}},
+            {"profile.missing",new[]{"There are no splits for this combination.","Für diese Kombination gibt es keine Splits."}},
+            {"profile.current",new[]{"This profile is loaded.","Dieses Profil ist geladen."}},
+            {"profile.failed",new[]{"Could not load the profile: {0}","Profil konnte nicht geladen werden: {0}"}},
         };
         public static IEnumerable<string> Keys { get { return All.Keys.ToList(); } }
         public static bool Has(string key) { string[] v;return All.TryGetValue(key,out v) && v.Length==2 && v[0].Length>0 && v[1].Length>0; }
