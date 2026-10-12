@@ -5,7 +5,7 @@ import { normalizeName, visible } from './directory.mjs';
 // Same wire protocol as relay/src/server.mjs, rebuilt on the Durable Object hibernation API:
 // one object per room, no timers (alarms only), state that must survive hibernation lives in
 // storage (keys, last complete snapshot) or in per-socket attachments (role, sequence, last tick).
-const DAY = 86400000, IDLE_MS = 7 * DAY, AUTH_MS = 5000, MAX_PENDING = 16, MAX_ROOM = 12;
+const DAY = 86400000, IDLE_MS = 7 * DAY, AUTH_MS = 5000, MAX_PENDING = 16, MAX_ROOM = 12, FAIL_MAX = 10, FAIL_WINDOW = 60000;
 const UPDATE = 'Unsupported protocol version; update LiveSplit Coop';
 const secure = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (status, body, headers = {}) => new Response(body === undefined ? null : JSON.stringify(body),
@@ -27,7 +27,10 @@ export default {
     // Native client only. Browsers and URL credentials are deliberately unsupported.
     if (url.search || request.headers.get('Origin') || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json(403);
     if (!path[1]) return legacy();
-    return env.ROOMS.get(env.ROOMS.idFromName(path[1])).fetch(request);
+    // The room counts failed logins per address; a client-supplied header is always overwritten.
+    const headers = new Headers(request.headers);
+    headers.set('X-Coop-IP', request.headers.get('CF-Connecting-IP') || 'unknown');
+    return env.ROOMS.get(env.ROOMS.idFromName(path[1])).fetch(new Request(request, { headers }));
   }
 };
 
@@ -151,14 +154,14 @@ export class Room extends DurableObject {
     });
   }
 
-  async fetch() {
+  async fetch(request) {
     const pending = this.sockets().filter(s => !s.a.role && s.ws.readyState === WebSocket.OPEN);
     // A flood must outpace a real client's hello instead of just holding sockets.
     if (pending.length >= MAX_PENDING) pending.reduce((a, b) => a.a.since <= b.a.since ? a : b).ws.close(1008, 'Authentication required');
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     const now = Date.now();
-    server.serializeAttachment({ since: now, count: 0, window: now });
+    server.serializeAttachment({ since: now, count: 0, window: now, ip: request.headers.get('X-Coop-IP') || 'unknown' });
     await this.wakeAt(now + AUTH_MS);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -203,9 +206,16 @@ export class Room extends DurableObject {
     if (m.type === 'hello' && m.v !== PROTOCOL) { ws.close(1008, UPDATE); return; }
     if (m.type !== 'hello' || !['host', 'viewer'].includes(m.role)) { ws.close(1008, 'Authentication failed'); return; }
     if (!this.meta) { ws.close(4004, 'Room expired or unknown'); return; }
+    // Lobby passwords can be short, so failed logins are limited per address and room.
+    // A locked-out address is refused before the key check, so a correct guess stays invisible.
+    const failKey = 'fail:' + (a.ip || 'unknown'), now = Date.now();
+    const fail = await this.ctx.storage.get(failKey);
+    const recent = fail && now - fail.since < FAIL_WINDOW ? fail : null;
+    if (recent && recent.count >= FAIL_MAX) { ws.close(1008, 'Too many attempts'); return; }
     const expected = m.role === 'host' ? this.meta.hostHash : this.meta.viewerHash;
     if (typeof m.key !== 'string' || m.key.length < 32 || m.key.length > 256 ||
         !crypto.subtle.timingSafeEqual(await digest(m.key), Uint8Array.from(expected.match(/../g), h => parseInt(h, 16)))) {
+      await this.ctx.storage.put(failKey, { since: recent ? recent.since : now, count: (recent ? recent.count : 0) + 1 });
       ws.close(1008, 'Authentication failed'); return;
     }
     // The host always has a reserved slot; viewers cannot lock the publisher out.

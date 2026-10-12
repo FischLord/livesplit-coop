@@ -82,3 +82,25 @@ test('lobbies: public lobbies are listed with live host, viewer and profile info
   viewer.close();
   await eventually(async () => assert.equal((await lobbies()).find(l => l.name === pub).viewers, 0));
 });
+
+test('lobbies: ten wrong passwords lock that address out of this lobby, even with the right one, but not out of others', async () => {
+  const made = await (await create({ name: unique('lk'), viewerKey: key('v'), public: false, locked: true })).json();
+  const other = await (await create({ name: unique('ot'), viewerKey: key('v'), public: false, locked: true })).json();
+  for (let i = 0; i < 10; i++) {
+    const [code, reason] = await closed(await client(made.roomId, 'viewer', key('w')));
+    assert.equal(code, 1008); assert.match(reason, /Authentication failed/);
+  }
+  const [code, reason] = await closed(await client(made.roomId, 'viewer', key('v')));
+  assert.equal(code, 1008); assert.match(reason, /Too many attempts/);
+  const fine = await client(other.roomId, 'viewer', key('v')); await fine.next('ready'); fine.close();
+});
+
+test('lobbies: a client cannot pick its own address header', async () => {
+  const made = await (await create({ name: unique('hd'), viewerKey: key('v'), public: false, locked: true })).json();
+  for (let i = 0; i < 10; i++) {
+    const ws = new WebSocket(`${dev.base}/coop/${made.roomId}`, { headers: { 'X-Coop-IP': 'spoof-' + i } });
+    await once(ws, 'open'); ws.send(JSON.stringify({ type: 'hello', v: 3, role: 'viewer', key: key('w') })); await closed(ws);
+  }
+  const [, reason] = await closed(await client(made.roomId, 'viewer', key('v')));
+  assert.match(reason, /Too many attempts/, 'spoofed headers must not spread failures over fake addresses');
+});
