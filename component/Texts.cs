@@ -96,6 +96,12 @@ namespace LiveSplit.Coop {
             {"profile.missing",new[]{"There are no splits for this combination.","Für diese Kombination gibt es keine Splits."}},
             {"profile.current",new[]{"This profile is loaded.","Dieses Profil ist geladen."}},
             {"profile.failed",new[]{"Could not load the profile: {0}","Profil konnte nicht geladen werden: {0}"}},
+            {"recorder.created",new[]{"Splits created: {0}.","Splits angelegt: {0}."}},
+            {"recorder.saved",new[]{"Attempt saved to {0}.","Versuch gespeichert in {0}."}},
+            {"recorder.pending",new[]{"A host timer on this PC has these splits open; the attempt was saved to {0}.","Ein Host-Timer auf diesem PC hat diese Splits offen; Versuch gespeichert in {0}."}},
+            {"recorder.adoptedPb",new[]{"Host PB taken over into {0}.","Host-PB übernommen in {0}."}},
+            {"recorder.mismatch",new[]{"Your splits {0} have different segments; the attempt was saved to {1}.","Deine Splits {0} haben andere Segmente; Versuch gespeichert in {1}."}},
+            {"recorder.failed",new[]{"Could not save the attempt: {0}","Versuch konnte nicht gespeichert werden: {0}"}},
         };
         public static IEnumerable<string> Keys { get { return All.Keys.ToList(); } }
         public static bool Has(string key) { string[] v;return All.TryGetValue(key,out v) && v.Length==2 && v[0].Length>0 && v[1].Length>0; }

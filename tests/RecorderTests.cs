@@ -24,6 +24,8 @@ public static class RecorderTests {
         Texts.German=false;
         FileTests(work);
         LibraryTests(work);
+        RecorderTestsMain(work);
+        AdoptionTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void FileTests(string work) {
@@ -75,5 +77,72 @@ public static class RecorderTests {
         Check(!HostLock.IsHeld(splits),"a lock from a process that no longer exists is ignored");
         File.WriteAllText(HostLock.PathFor(splits),"garbage");
         Check(!HostLock.IsHeld(splits),"an unreadable lock is ignored");
+    }
+    static void RecorderTestsMain(string work) {
+        string fallback=Path.Combine(work,"rec","Splits","Coop");
+        var clock=new DateTime(2026,10,12,12,0,0,DateTimeKind.Utc);
+        var recorder=new AttemptRecorder(new ViewerLibrary(null,fallback),s=>false,()=>clock);
+        long?[] pb={60,130,200},best={55,65,60};
+        string target=new ViewerLibrary(null,fallback).PathFor(Snap("x","NotRunning",-1,None,pb,best,null));
+        // First contact creates the file from the host's PB.
+        recorder.Observe(Snap("a0","NotRunning",-1,None,pb,best,null),1);
+        Check(File.Exists(target) && RunFiles.Load(target)[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(200),"first contact creates splits with the host PB");
+        Check(recorder.Note==Texts.T("recorder.created",Path.GetFileName(target)),"the viewer is told: "+recorder.Note);
+        // A completed attempt with a new PB and a gold on CP2 (segment 120-58=62 < 65).
+        recorder.Observe(Snap("a1","Running",0,None,pb,best,5),1);
+        recorder.Observe(Snap("a1","Running",1,new long?[]{58,null,null},pb,best,70),1);
+        recorder.Observe(Snap("a1","Running",2,new long?[]{58,120,null},pb,best,150),1);
+        clock=clock.AddSeconds(190);
+        recorder.Observe(Snap("a1","Ended",3,new long?[]{58,120,190},pb,best,190),1);
+        Check(RunFiles.Load(target).AttemptCount==0,"nothing is written before the host resets");
+        recorder.Observe(Snap("a2","NotRunning",-1,None,new long?[]{58,120,190},new long?[]{55,62,60},null),1);
+        var run=RunFiles.Load(target);
+        Check(run.AttemptCount==1 && run.AttemptHistory.Count==1,"the completed attempt is counted");
+        Check(run.AttemptHistory[0].Time.RealTime==TimeSpan.FromSeconds(190),"attempt history has the final time");
+        Check(run[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(190) && run[1].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(120),"new PB is recorded");
+        Check(run[1].BestSegmentTime.RealTime==TimeSpan.FromSeconds(62),"new gold is recorded");
+        Check(run[0].SegmentHistory.ContainsKey(1) && run[0].SegmentHistory[1].RealTime==TimeSpan.FromSeconds(58),"segment history grows (key 0 is the PB seed LiveSplit adds on load)");
+        Check(recorder.Note==Texts.T("recorder.saved",Path.GetFileName(target)),"saving is reported");
+        // A reset attempt: counted, no PB change.
+        recorder.Observe(Snap("a3","Running",1,new long?[]{70,null,null},new long?[]{58,120,190},new long?[]{55,62,60},90),1);
+        recorder.Observe(Snap("a4","NotRunning",-1,None,new long?[]{58,120,190},new long?[]{55,62,60},null),1);
+        run=RunFiles.Load(target);
+        Check(run.AttemptCount==2 && run.AttemptHistory.Count==2 && !run.AttemptHistory[1].Time.RealTime.HasValue,"a reset attempt is counted without a time");
+        Check(run[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(190),"a reset keeps the PB");
+        // A reconnect in the middle of an attempt drops it.
+        recorder.Observe(Snap("a5","Running",1,new long?[]{60,null,null},None,None,80),1);
+        recorder.Observe(Snap("a6","NotRunning",-1,None,None,None,null),2);
+        Check(RunFiles.Load(target).AttemptCount==2,"attempts interrupted by a reconnect are not recorded");
+        // Joining mid-attempt and seeing it end still records it.
+        recorder.Observe(Snap("a7","Running",2,new long?[]{60,125,null},new long?[]{58,120,190},new long?[]{55,62,60},150),2);
+        recorder.Observe(Snap("a7","Ended",3,new long?[]{60,125,195},new long?[]{58,120,190},new long?[]{55,62,60},195),2);
+        recorder.Observe(Snap("a8","NotRunning",-1,None,new long?[]{58,120,190},new long?[]{55,62,60},null),2);
+        Check(RunFiles.Load(target).AttemptCount==3,"an attempt seen to its end is recorded");
+        // Host lock: attempts go to Pending.
+        var locked=new AttemptRecorder(new ViewerLibrary(null,fallback),s=>true,()=>clock);
+        locked.Observe(Snap("b1","Running",0,None,new long?[]{58,120,190},new long?[]{55,62,60},5),1);
+        locked.Observe(Snap("b2","NotRunning",-1,None,new long?[]{58,120,190},new long?[]{55,62,60},null),1);
+        string pending=new ViewerLibrary(null,fallback).PendingPath(target);
+        Check(File.Exists(pending) && RunFiles.Load(pending).AttemptCount==1 && RunFiles.Load(target).AttemptCount==3,"a locked target sends the attempt to Pending");
+        Check(locked.Note==Texts.T("recorder.pending",pending),"pending is reported");
+    }
+    static void AdoptionTests(string work) {
+        string fallback=Path.Combine(work,"adopt","Splits","Coop");
+        var library=new ViewerLibrary(null,fallback);
+        var mine=RunFiles.FromSnapshot(Snap("x","NotRunning",-1,None,new long?[]{70,140,210},new long?[]{50,70,70},null));
+        string target=library.PathFor(Snap("x","NotRunning",-1,None,None,None,null));
+        RunFiles.Save(mine,target);
+        var recorder=new AttemptRecorder(library,s=>false,()=>DateTime.UtcNow);
+        recorder.Observe(Snap("h0","NotRunning",-1,None,new long?[]{60,130,200},new long?[]{55,65,60},null),1);
+        var run=RunFiles.Load(target);
+        Check(run[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(200) && run[0].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(60),"a faster host PB replaces the local PB");
+        Check(run[0].BestSegmentTime.RealTime==TimeSpan.FromSeconds(50) && run[1].BestSegmentTime.RealTime==TimeSpan.FromSeconds(65) && run[2].BestSegmentTime.RealTime==TimeSpan.FromSeconds(60),"only faster host golds are taken");
+        Check(recorder.Note==Texts.T("recorder.adoptedPb",Path.GetFileName(target)),"adoption is reported");
+        var slower=new AttemptRecorder(library,s=>false,()=>DateTime.UtcNow);
+        slower.Observe(Snap("h1","NotRunning",-1,None,new long?[]{70,150,230},new long?[]{60,80,80},null),1);
+        Check(RunFiles.Load(target)[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(200),"a slower host PB is ignored");
+        var other=Snap("h2","NotRunning",-1,None,new long?[]{1,2,3},new long?[]{1,1,1},null);other.segments[0].name="Different";
+        new AttemptRecorder(library,s=>false,()=>DateTime.UtcNow).Observe(other,1);
+        Check(RunFiles.Load(target)[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(200),"different segments never overwrite local splits");
     }
 }
