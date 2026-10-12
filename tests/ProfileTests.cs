@@ -40,7 +40,7 @@ public static class ProfileTests {
         File.WriteAllText(Path.Combine(root,"coop-profiles.json"),PackJson);
         File.WriteAllText(Path.Combine(root,"Layouts/Host-A.lsl"),Layout);File.WriteAllText(Path.Combine(root,"Layouts/Host-B.lsl"),Layout);File.WriteAllText(Path.Combine(root,"Layouts/Viewer.lsl"),Layout);
         File.WriteAllText(Path.Combine(root,"Splits/A/NMG.lss"),Splits.Replace("CATEGORY","Map A Any%"));
-        File.WriteAllText(Path.Combine(root,"Splits/A/G.lss"),Splits.Replace("CATEGORY","Map A Any%"));
+        File.WriteAllText(Path.Combine(root,"Splits/A/G.lss"),Splits.Replace("CATEGORY","Map A Any Percent (old spelling)"));
         File.WriteAllText(Path.Combine(root,"Splits/B/NMG.lss"),Splits.Replace("CATEGORY","Map B Finish"));
         File.WriteAllText(Path.Combine(root,"Autosplitter/test.asl"),"state(\"x\"){}");
         return root;
@@ -97,6 +97,7 @@ public static class ProfileTests {
         string splitsPath=pack.FullPath(g.splits);
         var run=new XmlDocument();run.Load(splitsPath);
         Check(run.SelectSingleNode("/Run/LayoutPath").InnerText==pack.FullPath(g.layout),"splits point to the profile layout");
+        Check(run.SelectSingleNode("/Run/CategoryName").InnerText=="Map A Any%","the category name follows the pack (speedrun.com spelling)");
         var glitch=run.SelectSingleNode("/Run/Metadata/Variables/Variable[@name='Glitch Type']");
         Check(glitch!=null && glitch.FirstChild is XmlCDataSection && glitch.InnerText=="Glitched ","values with outer spaces are written as CDATA");
         Check(run.SelectSingleNode("/Run/Metadata/Variables/Variable[@name='Number of Players']").InnerText=="Duo","plain variables are written");

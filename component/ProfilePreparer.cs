@@ -37,6 +37,8 @@ namespace LiveSplit.Coop {
                 // LiveSplit trims plain XML text; CDATA keeps labels such as speedrun.com's "Glitched " intact.
                 if(pair.Value!=pair.Value.Trim()) variable.AppendChild(run.CreateCDataSection(pair.Value)); else variable.InnerText=pair.Value;
             }
+            // The pack's spelling is the speedrun.com category, so leaderboards and viewers' profiles match.
+            if(!string.IsNullOrEmpty(profile.category)) SetChild(run.DocumentElement,"CategoryName",profile.category);
             SetChild(run.DocumentElement,"LayoutPath",layoutPath);
             Save(run,splitsPath);
         }
