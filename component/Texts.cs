@@ -1,5 +1,83 @@
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+
 namespace LiveSplit.Coop {
+    // UI text in English or German, chosen by the Windows display language. Unknown keys show the key itself.
     public static class Texts {
-        public static bool German;
+        public static bool German=CultureInfo.CurrentUICulture.TwoLetterISOLanguageName=="de";
+        static readonly Dictionary<string,string[]> All=new Dictionary<string,string[]> {
+            {"menu.coop",new[]{"Coop...","Coop..."}},
+            {"window.title",new[]{"Coop","Coop"}},
+            {"window.close",new[]{"Close","Schließen"}},
+            {"section.profile",new[]{"Profile","Profil"}},
+            {"section.lobby",new[]{"Lobby","Lobby"}},
+            {"section.advanced",new[]{"Advanced","Erweitert"}},
+            {"lobby.name",new[]{"Lobby name","Lobby-Name"}},
+            {"lobby.password",new[]{"Password (optional)","Passwort (optional)"}},
+            {"lobby.public",new[]{"Show in the public list","In öffentlicher Liste anzeigen"}},
+            {"lobby.create",new[]{"Create lobby","Lobby erstellen"}},
+            {"lobby.join",new[]{"Join","Beitreten"}},
+            {"lobby.refresh",new[]{"Refresh","Aktualisieren"}},
+            {"lobby.leave",new[]{"Leave lobby","Lobby verlassen"}},
+            {"lobby.reconnect",new[]{"Reconnect","Neu verbinden"}},
+            {"lobby.copyPassword",new[]{"Copy name and password","Name und Passwort kopieren"}},
+            {"lobby.publicList",new[]{"Public lobbies","Öffentliche Lobbys"}},
+            {"lobby.column.name",new[]{"Lobby","Lobby"}},
+            {"lobby.column.run",new[]{"Run","Run"}},
+            {"lobby.column.online",new[]{"Host / viewers","Host / Zuschauer"}},
+            {"lobby.none",new[]{"No public lobbies right now.","Gerade keine öffentlichen Lobbys."}},
+            {"lobby.loading",new[]{"Loading...","Lade..."}},
+            {"lobby.creating",new[]{"Creating lobby...","Erstelle Lobby..."}},
+            {"lobby.joining",new[]{"Joining...","Trete bei..."}},
+            {"lobby.created",new[]{"Lobby {0} created. Name and password are copied for your teammates.","Lobby {0} erstellt. Name und Passwort sind für deine Mitspieler kopiert."}},
+            {"lobby.passwordInfo",new[]{"Lobby: {0} · Password: {1}","Lobby: {0} · Passwort: {1}"}},
+            {"lobby.nameInfo",new[]{"Lobby: {0} (no password)","Lobby: {0} (ohne Passwort)"}},
+            {"lobby.invalidName",new[]{"Lobby names use 3-32 letters, digits, - or _.","Lobby-Namen: 3-32 Zeichen aus Buchstaben, Ziffern, - oder _."}},
+            {"lobby.taken",new[]{"This lobby already exists. Choose another name or join it.","Diese Lobby gibt es schon. Anderen Namen wählen oder beitreten."}},
+            {"lobby.unknown",new[]{"Lobby not found or expired.","Lobby nicht gefunden oder abgelaufen."}},
+            {"lobby.wrongPassword",new[]{"Wrong password.","Passwort falsch."}},
+            {"lobby.tooMany",new[]{"Too many failed attempts. Wait a minute.","Zu viele Fehlversuche. Eine Minute warten."}},
+            {"lobby.replaced",new[]{"Another host connection took over this lobby.","Eine andere Host-Verbindung hat die Lobby übernommen."}},
+            {"lobby.protocol",new[]{"Update LiveSplit Coop: the server speaks a newer protocol.","LiveSplit Coop aktualisieren: Der Server spricht ein neueres Protokoll."}},
+            {"lobby.rejected",new[]{"The server rejected the connection.","Der Server hat die Verbindung abgelehnt."}},
+            {"lobby.unsupported",new[]{"This server has no lobbies. Use an invitation under Advanced.","Server unterstützt keine Lobbys - Einladungscode unter Erweitert."}},
+            {"lobby.rateLimited",new[]{"Too many new lobbies from here. Wait a minute.","Zu viele neue Lobbys von hier. Eine Minute warten."}},
+            {"lobby.dailyLimit",new[]{"The server is not creating lobbies right now. Try again later.","Der Server erstellt gerade keine Lobbys. Später erneut versuchen."}},
+            {"lobby.unreachable",new[]{"Server not reachable: {0}","Server nicht erreichbar: {0}"}},
+            {"lobby.refused",new[]{"The server refused ({0}).","Der Server hat abgelehnt ({0})."}},
+            {"lobby.badAnswer",new[]{"The server sent an unexpected answer.","Unerwartete Antwort vom Server."}},
+            {"lobby.keyUnreadable",new[]{"The saved lobby key cannot be read on this PC. Leave the lobby and join again.","Der gespeicherte Lobby-Schlüssel ist auf diesem PC nicht lesbar. Lobby verlassen und neu beitreten."}},
+            {"status.notConnected",new[]{"not in a lobby","nicht in einer Lobby"}},
+            {"status.host",new[]{"Host","Host"}},
+            {"status.following",new[]{"following host","folgt Host"}},
+            {"status.waiting",new[]{"waiting for host","warte auf Host"}},
+            {"status.hostOffline",new[]{"host offline - frozen","Host offline - eingefroren"}},
+            {"status.stale",new[]{"no fresh data - frozen","keine neuen Daten - eingefroren"}},
+            {"status.connecting",new[]{"connecting...","verbinde..."}},
+            {"status.reconnecting",new[]{"reconnecting...","verbinde neu..."}},
+            {"status.online",new[]{"{0} online","{0} online"}},
+            {"status.public",new[]{"public","öffentlich"}},
+            {"status.private",new[]{"private","privat"}},
+            {"status.inviteRoom",new[]{"invitation room","Einladungsraum"}},
+            {"status.autosplitter",new[]{"turn off the autosplitter","Autosplitter ausschalten"}},
+            {"advanced.server",new[]{"Server","Server"}},
+            {"advanced.inviteCode",new[]{"Invitation","Einladung"}},
+            {"advanced.invite",new[]{"Join with invitation","Mit Einladungscode beitreten"}},
+            {"advanced.invalidInvite",new[]{"That invitation is not valid. Paste the complete lscoop:1:... code.","Ungültige Einladung. Den kompletten lscoop:1:...-Code einfügen."}},
+            {"advanced.diagnostics",new[]{"Export diagnostics...","Diagnose exportieren..."}},
+            {"viewer.stopTimer",new[]{"Stop or reset the local timer before joining.","Erst den lokalen Timer stoppen oder resetten."}},
+            {"copy.done",new[]{"Copied.","Kopiert."}},
+            {"copy.busy",new[]{"The clipboard is busy. Try again.","Zwischenablage belegt. Nochmal versuchen."}},
+            {"settings.role",new[]{"Role","Rolle"}},
+            {"settings.roleHost",new[]{"Host - this timer measures","Host - dieser Timer misst"}},
+            {"settings.roleViewer",new[]{"Viewer - follow the host","Viewer - dem Host folgen"}},
+            {"settings.open",new[]{"Open coop window...","Coop-Fenster öffnen..."}},
+            {"settings.note",new[]{"Lobbies are managed in the coop window (right-click > Coop...). Layouts no longer store room keys.","Lobbys verwaltest du im Coop-Fenster (Rechtsklick > Coop...). Layouts speichern keine Raumschlüssel mehr."}}
+        };
+        public static IEnumerable<string> Keys { get { return All.Keys.ToList(); } }
+        public static bool Has(string key) { string[] v;return All.TryGetValue(key,out v) && v.Length==2 && v[0].Length>0 && v[1].Length>0; }
+        public static string T(string key) { string[] v;if(!All.TryGetValue(key,out v)) return key;return German?v[1]:v[0]; }
+        public static string T(string key,params object[] args) { return string.Format(T(key),args); }
     }
 }

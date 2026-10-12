@@ -15,7 +15,17 @@ public static class LobbyTests {
     public static void Run(string relay,string work) {
         Texts.German=false;
         KeyTests();
+        TextTests();
         Console.WriteLine(passed+" checks passed");
+    }
+    static void TextTests() {
+        Texts.German=true;
+        Check(Texts.T("lobby.wrongPassword")=="Passwort falsch.","German text");
+        Check(Texts.T("status.online",2)=="2 online","formatted text");
+        Texts.German=false;
+        Check(Texts.T("lobby.wrongPassword")=="Wrong password.","English text");
+        Check(Texts.T("no.such.key")=="no.such.key","unknown keys fall back to the key");
+        foreach(var key in Texts.Keys) Check(Texts.Has(key),"every key has both languages: "+key);
     }
     static void KeyTests() {
         Check(LobbyKey.Normalize("  RvGang ")=="rvgang","name is trimmed and lowercased");
