@@ -17,6 +17,10 @@ namespace LiveSplit.Coop {
         string StatusLine { get; }
         string SavedPassword { get; }   // host only, null when unknown
         string JoinProblem();           // why this copy cannot follow a host right now, or null
+        string ShareText { get; }       // host: what teammates need to join (name and password, or an invitation); null when unknown
+        bool ShareIsInvite { get; }     // ShareText is an invitation code
+        string LastLobbyName { get; }   // host: the lobby that was left last and can be reopened, or null
+        void ReopenLast();
         string LastFailure { get; }     // why the last UseLobby/JoinInvite was turned down (StopReason code, or "rejected"); null otherwise
         string UseLobby(LobbyGrant grant,string password);   // null, or a warning to show (e.g. the lobby could not be saved)
         bool JoinInvite(string invite);
@@ -31,6 +35,7 @@ namespace LiveSplit.Coop {
         readonly Func<string,List<LobbyInfo>> list;
         readonly TableLayoutPanel body=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,AutoSize=true,Padding=new Padding(14) };
         readonly FlowLayoutPanel current=Stack(),createPanel=Stack(),joinPanel=Stack(),advanced=Stack();
+        readonly Label lobbyInfo=new Label { Name="lobbyInfo",AutoSize=true,MaximumSize=new Size(480,0) };
         readonly Label status=new Label { Name="status",AutoSize=true,MaximumSize=new Size(480,0) };
         readonly Label message=new Label { Name="message",AutoSize=true,MaximumSize=new Size(480,0),Margin=new Padding(0,6,0,0) };
         readonly TextBox name=new TextBox { Name="lobbyName",Width=230,MaxLength=32 };
@@ -73,7 +78,7 @@ namespace LiveSplit.Coop {
             leave.Click+=(s,e)=>{ session.Leave();pendingJoin=busy=false;message.Text="";Sync();if(session.Role!="host") LoadList(); };
             var row=Row(reconnect,leave);
             if(session.Role=="host") { var copy=Action("copyPassword","lobby.copyPassword");copy.Click+=(s,e)=>CopyInfo();row.Controls.Add(copy); }
-            current.Controls.Add(row);
+            current.Controls.Add(lobbyInfo);current.Controls.Add(row);
         }
         void BuildCreate() {
             isPublic.Text=Texts.T("lobby.public");
@@ -81,6 +86,8 @@ namespace LiveSplit.Coop {
             createPanel.Controls.Add(Row(Caption("lobby.name"),name));
             createPanel.Controls.Add(Row(Caption("lobby.password"),password));
             createPanel.Controls.Add(isPublic);createPanel.Controls.Add(go);
+            var reopen=Action("reopen","lobby.reopen");reopen.Click+=(s,e)=>{ message.Text="";session.ReopenLast();Sync(); };
+            createPanel.Controls.Add(reopen);
         }
         void BuildJoin() {
             lobbies.Columns.Add(Texts.T("lobby.column.name"),130);lobbies.Columns.Add("",30);
@@ -125,7 +132,12 @@ namespace LiveSplit.Coop {
             current.Visible=has;createPanel.Visible=!has && session.Role=="host";joinPanel.Visible=!has && session.Role!="host";
             if(!busy) status.Text=session.StatusLine;
             Find("reconnect").Visible=has && !session.Connected && session.StopReason!=null && !pendingJoin;
-            var copy=Find("copyPassword");if(copy!=null) copy.Visible=has && session.SavedPassword!=null;
+            var lobby=session.Lobby;
+            if(lobby!=null) lobbyInfo.Text=lobby.name==null?Texts.T("status.inviteRoom"):lobby.name+" · "+Texts.T(lobby.isPublic?"status.public":"status.private");
+            var copy=Find("copyPassword");
+            if(copy!=null) { copy.Visible=has && session.ShareText!=null;copy.Text=Texts.T(session.ShareIsInvite?"lobby.copyInvite":"lobby.copyPassword"); }
+            var reopen=Find("reopen");
+            if(reopen!=null) { string last=session.LastLobbyName;reopen.Visible=!has && last!=null;if(last!=null) reopen.Text=Texts.T("lobby.reopen",last); }
         }
         Control Find(string controlName) { var found=Controls.Find(controlName,true);return found.Length>0?found[0]:null; }
         public static string Explain(string reason) {
@@ -209,15 +221,15 @@ namespace LiveSplit.Coop {
                 Report(e is LobbyException?e.Message:Texts.T("lobby.unreachable",e.Message),true);
             }
         }
-        static string Info(string lobby,string secret) { return secret.Length>0?Texts.T("lobby.passwordInfo",lobby,secret):Texts.T("lobby.nameInfo",lobby); }
+        public static string Info(string lobby,string secret) { return secret.Length>0?Texts.T("lobby.passwordInfo",lobby,secret):Texts.T("lobby.nameInfo",lobby); }
         static bool Copy(string text) {
             try { var data=new DataObject();data.SetText(text,TextDataFormat.UnicodeText);Clipboard.SetDataObject(data,true,3,75);return true; }
             catch(ExternalException) { return false; }
         }
         void CopyInfo() {
-            var lobby=session.Lobby;
-            if(lobby==null) return;
-            Report(Copy(Info(lobby.name ?? lobby.roomId,session.SavedPassword ?? ""))?Texts.T("copy.done"):Texts.T("copy.busy"),false);
+            string text=session.ShareText;
+            if(text==null) return;
+            Report(Copy(text)?Texts.T("copy.done"):Texts.T("copy.busy"),false);
         }
         void Report(string text,bool error) { message.ForeColor=error?Color.Firebrick:Color.SeaGreen;message.Text=text; }
         protected override void Dispose(bool disposing) { if(disposing) refresh.Dispose();base.Dispose(disposing); }

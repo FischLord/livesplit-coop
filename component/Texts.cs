@@ -36,6 +36,8 @@ namespace LiveSplit.Coop {
             {"lobby.createdOpenNoCopy",new[]{"Lobby {0} created without a password. Copy the name with the button below.","Lobby {0} ohne Passwort erstellt. Den Namen mit dem Knopf unten kopieren."}},
             {"lobby.saveFailed",new[]{"The lobby works now but could not be saved ({0}). It will be gone after LiveSplit closes.","Die Lobby funktioniert jetzt, konnte aber nicht gespeichert werden ({0}). Nach dem Schlie\u00dfen von LiveSplit ist sie weg."}},
             {"lobby.slow",new[]{"Still connecting... the lobby may be full or the server unreachable.","Verbinde noch... Die Lobby ist evtl. voll oder der Server nicht erreichbar."}},
+            {"lobby.copyInvite",new[]{"Copy invitation","Einladung kopieren"}},
+            {"lobby.reopen",new[]{"Reopen lobby {0}","Lobby {0} wieder öffnen"}},
             {"lobby.passwordInfo",new[]{"Lobby: {0} · Password: {1}","Lobby: {0} · Passwort: {1}"}},
             {"lobby.nameInfo",new[]{"Lobby: {0} (no password)","Lobby: {0} (ohne Passwort)"}},
             {"lobby.invalidName",new[]{"Lobby names use 3-32 letters, digits, - or _.","Lobby-Namen: 3-32 Zeichen aus Buchstaben, Ziffern, - oder _."}},

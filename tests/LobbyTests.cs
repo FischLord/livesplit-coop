@@ -142,6 +142,17 @@ public static class LobbyTests {
         public string SavedPassword { get { return password; } }
         public string JoinProblem() { return problem; }
         public string LastFailure { get { return lastFailure; } }
+        public LobbyState last;
+        public string LastLobbyName { get { return last==null?null:last.name; } }
+        public void ReopenLast() { lobby=last;last=null;password="banane"; }
+        public bool ShareIsInvite { get { return lobby!=null && role=="host" && lobby.name==null; } }
+        public string ShareText {
+            get {
+                if(lobby==null || role!="host") return null;
+                if(lobby.name==null) return Invite.Format(lobby.server,lobby.roomId,LocalState.Unprotect(lobby.protectedViewerKey));
+                return CoopWindow.Info(lobby.name,password ?? "");
+            }
+        }
         public string UseLobby(LobbyGrant grant,string pw) {
             lastFailure=null;used=grant;usedPassword=pw;
             if(failOnUse) { lobby=null;lastFailure="rejected";return null; }
@@ -149,7 +160,7 @@ public static class LobbyTests {
         }
         public bool JoinInvite(string text) { string s,r,k;if(!Invite.TryParse(text,out s,out r,out k))return false;lastFailure=null;invite=text;lobby=LobbyState.FromLegacy(s,r,"viewer",k,"");return true; }
         public void Reconnect() { }
-        public void Leave() { leaves++;lobby=null;connected=false;stopReason=null;lastFailure=null; }
+        public void Leave() { leaves++;if(role=="host" && lobby!=null && lobby.name!=null) last=lobby;lobby=null;connected=false;stopReason=null;lastFailure=null; }
         public void ExportDiagnostics(IWin32Window owner) { }
     }
     static readonly BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
@@ -174,8 +185,23 @@ public static class LobbyTests {
             Pump(()=>Shown(Find(w,"leave")) && !Shown(Find(w,"create")));
             Check(Find(w,"message").Text==Texts.T("lobby.created","rvgang") || Find(w,"message").Text==Texts.T("lobby.createdNoCopy","rvgang"),"host is told the lobby was created (and whether the clipboard took it)");
             Check(Shown(Find(w,"copyPassword")),"host can copy name and password");
+            Check(Find(w,"lobbyInfo").Text.Contains(Texts.T("status.public")) && Find(w,"lobbyInfo").Text.Contains("rvgang"),"the current lobby is labelled public: "+Find(w,"lobbyInfo").Text);
+            Check(Find(w,"copyPassword").Text==Texts.T("lobby.copyPassword"),"named lobbies offer name and password");
+            Check(!Shown(Find(w,"reopen")),"no reopen button while in a lobby");
             Click(Find(w,"leave"));Pump(()=>Shown(Find(w,"create")));
             Check(host.leaves==1 && host.lobby==null,"leave clears the lobby");
+            Check(Shown(Find(w,"reopen")) && Find(w,"reopen").Text==Texts.T("lobby.reopen","rvgang"),"the last host lobby can be reopened");
+            Click(Find(w,"reopen"));Pump(()=>Shown(Find(w,"leave")));
+            Check(host.lobby!=null && host.lobby.name=="rvgang" && !Shown(Find(w,"create")),"reopening restores the lobby");
+            w.Close();
+        }
+        // A host room from before lobbies has no name: it shares its invitation instead.
+        var oldHost=new FakeSession();
+        oldHost.lobby=LobbyState.FromLegacy("wss://relay.example/coop","oldroom","host",new string('k',43),new string('i',43));
+        using(var w=new CoopWindow(oldHost,null,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"copyPassword")) && Find(w,"copyPassword").Text==Texts.T("lobby.copyInvite"));
+            Check(true,"a legacy host room offers to copy its invitation");
+            Check(oldHost.ShareText=="lscoop:1:wss://relay.example/coop/oldroom#"+new string('i',43),"the invitation code carries the viewer key");
             w.Close();
         }
         // A lobby without a password gets wording without a password.
@@ -326,6 +352,40 @@ public static class LobbyTests {
             component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
             string warning=component.UseLobby(grant,"banane");
             Check(warning!=null && warning.StartsWith(Texts.T("lobby.saveFailed","").Substring(0,20)) && component.Lobby!=null,"a failed save is reported while the lobby stays usable: "+warning);
+        }
+        // Sharing: named host lobbies share name and password, legacy host rooms their invitation.
+        string sharePath=Path.Combine(work,"share-local.json");
+        if(File.Exists(sharePath)) File.Delete(sharePath);
+        using(var component=new CoopComponent(NewState(),sharePath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            component.UseLobby(grant,"banane");
+            Check(component.ShareText==CoopWindow.Info(grant.name,"banane") && !component.ShareIsInvite,"a named host lobby shares name and password");
+            Check(component.LastLobbyName==null,"no last lobby while in one");
+            component.Leave();
+            Check(component.ShareText==null && component.LastLobbyName==grant.name,"after leaving the host lobby can be reopened");
+            Check(LocalState.Load(sharePath).lastHostLobby!=null && LocalState.Load(sharePath).lobby==null,"the last host lobby is kept on disk, still protected");
+            Check(!File.ReadAllText(sharePath).Contains(grant.hostKey),"the kept host key is not plain text");
+        }
+        var reopenState=NewState();
+        using(var component=new CoopComponent(reopenState,sharePath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            Check(component.LastLobbyName==grant.name,"the last host lobby survives a restart");
+            component.ReopenLast();
+            Check(component.Lobby!=null && component.Lobby.name==grant.name && component.LastLobbyName==null && component.ShareText==CoopWindow.Info(grant.name,"banane"),"reopen restores lobby and password");
+            Check(Until(()=>{component.Update(null,reopenState,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.Connected;}),"a reopened lobby connects");
+            Check(LocalState.Load(sharePath).lobby!=null && LocalState.Load(sharePath).lastHostLobby==null,"reopen is persisted");
+        }
+        File.Delete(sharePath);
+        using(var component=new CoopComponent(NewState(),sharePath)) {
+            component.SetSettings(Xml("<Version>1</Version><Address>wss://relay.example/coop</Address><Room>oldroom</Room><Role>host</Role><ProtectedKey>"+LocalState.Protect(new string('k',43))+"</ProtectedKey><ProtectedInviteKey>"+LocalState.Protect(new string('i',43))+"</ProtectedInviteKey>"));
+            Check(component.ShareIsInvite && component.ShareText=="lscoop:1:wss://relay.example/coop/oldroom#"+new string('i',43),"a legacy host room shares its invitation");
+            component.Leave();
+            Check(component.LastLobbyName==null,"a nameless legacy room is not offered for reopening");
+        }
+        string share2=Path.Combine(work,"share2-local.json");if(File.Exists(share2)) File.Delete(share2);
+        using(var component=new CoopComponent(NewState(),share2)) {
+            component.SetSettings(Xml("<Version>1</Version><Address>wss://relay.example/coop</Address><Room>oldroom2</Room><Role>host</Role><ProtectedKey>"+LocalState.Protect(new string('k',43))+"</ProtectedKey><ProtectedInviteKey></ProtectedInviteKey>"));
+            Check(component.ShareText==null,"a legacy host room without an invitation key has nothing to share");
         }
         // A role change in the layout settings drops the connection of the old role.
         new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);

@@ -111,6 +111,20 @@ namespace LiveSplit.Coop {
                 catch(CryptographicException) { return null; }
             }
         }
+        public string LastLobbyName { get { return local.lastHostLobby==null?null:local.lastHostLobby.name; } }
+        public bool ShareIsInvite { get { var lobby=Lobby;return lobby!=null && Role=="host" && lobby.name==null; } }
+        // What a host can hand to teammates: name and password, or the invitation for a room from before lobbies.
+        public string ShareText {
+            get {
+                var lobby=Lobby;
+                if(lobby==null || Role!="host") return null;
+                try {
+                    if(lobby.name==null) { string key=LocalState.Unprotect(lobby.protectedViewerKey);return key.Length>0?Invite.Format(lobby.server,lobby.roomId,key):null; }
+                    string password=SavedPassword;
+                    return password==null?null:CoopWindow.Info(lobby.name,password);
+                } catch(CryptographicException) { return null; } catch(ArgumentException) { return null; }
+            }
+        }
         public string JoinProblem() {
             var problem=AutoSplitterProblem(state);
             if(problem!=null) return problem;
@@ -136,7 +150,19 @@ namespace LiveSplit.Coop {
             Connect();return true;
         }
         public void Reconnect() { Connect(); }
-        public void Leave() { lastFailure=null;unconfirmed=false;local.lobby=null;Disconnect();SaveLocal(); }
+        public void Leave() {
+            var left=Lobby;
+            // A lobby the relay already forgot cannot be reopened.
+            bool expired=connection!=null && connection.StopReason=="unknown_room";
+            if(left!=null && Role=="host" && left.name!=null && !expired) local.lastHostLobby=left;
+            lastFailure=null;unconfirmed=false;local.lobby=null;Disconnect();SaveLocal();
+        }
+        public void ReopenLast() {
+            if(local.lastHostLobby==null || Role!="host") return;
+            lastFailure=null;unconfirmed=false;
+            local.lobby=local.lastHostLobby;local.lastHostLobby=null;
+            SaveLocal();Connect();
+        }
         // An unconfirmed lobby never reaches the file, whatever else is saved meanwhile.
         bool SaveLocal() {
             var held=local.lobby;
