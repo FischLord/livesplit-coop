@@ -21,6 +21,7 @@ export default {
     // Browsers could send this cross-site; only native clients may create rooms.
     if (request.method === 'POST' && url.pathname === '/rooms' && !url.search && !request.headers.get('Origin')) return createRoom(request, env);
     if (request.method === 'POST' && url.pathname === '/lobbies' && !url.search && !request.headers.get('Origin')) return createLobby(request, env);
+    if (request.method === 'GET' && url.pathname === '/lobbies' && !url.search) return json(200, { lobbies: await env.DIRECTORY.get(env.DIRECTORY.idFromName('global')).list() });
     const path = /^\/coop(?:\/([a-zA-Z0-9_-]{1,64}))?$/.exec(url.pathname);
     if (!path) return json(404);
     // Native client only. Browsers and URL credentials are deliberately unsupported.
@@ -85,6 +86,20 @@ export class Quota extends DurableObject {
   }
 }
 
+// Public lobby directory; one instance named "global". Rooms publish their own entry.
+export class Directory extends DurableObject {
+  async put(name, entry) { await this.ctx.storage.put('l:' + name, entry); }
+  async remove(name) { await this.ctx.storage.delete('l:' + name); }
+  async list() {
+    const now = Date.now();
+    const all = [...(await this.ctx.storage.list({ prefix: 'l:' })).values()];
+    // Rooms remove their entry when they expire; this only sweeps leftovers.
+    const stale = all.filter(e => now - e.updated >= IDLE_MS + DAY).map(e => 'l:' + e.name).slice(0, 128);
+    if (stale.length) await this.ctx.storage.delete(stale);
+    return visible(all, now);
+  }
+}
+
 export class Room extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -123,7 +138,18 @@ export class Room extends DurableObject {
     return true;
   }
 
-  async report() {}
+  directory() { return this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName('global')); }
+  // Publishes this lobby's public entry. Private lobbies and plain rooms are never listed.
+  async report() {
+    const lobby = this.meta?.lobby;
+    if (!lobby?.public) return;
+    const s = this.snapshot;
+    await this.directory().put(lobby.name, {
+      name: lobby.name, locked: lobby.locked, hostOnline: !!this.host(), viewers: this.viewers().length,
+      game: s?.game ?? null, category: s?.category ?? null,
+      label: typeof s?.profileLabel === 'string' ? s.profileLabel.slice(0, 60) : null, updated: Date.now()
+    });
+  }
 
   async fetch() {
     const pending = this.sockets().filter(s => !s.a.role && s.ws.readyState === WebSocket.OPEN);
@@ -168,6 +194,8 @@ export class Room extends DurableObject {
     this.snapshot = m;
     // Only structural changes reach storage, so a running timer costs no writes.
     await this.ctx.storage.put('snapshot', m);
+    const reported = [m.game, m.category, m.profileLabel].join('|');
+    if (reported !== this.reported) { this.reported = reported; await this.report(); }
     this.broadcast({ type: 'state', live: true, ageMs: 0, snapshot: m });
   }
 
@@ -192,6 +220,7 @@ export class Room extends DurableObject {
       previous.ws.close(4001, 'Replaced by a newer host connection');
     }
     ws.send(JSON.stringify({ type: 'ready', v: PROTOCOL, role: m.role }));
+    await this.report();
     if (m.role === 'viewer') {
       const host = this.host();
       ws.send(JSON.stringify({ type: 'host', online: !!host }));
@@ -218,6 +247,7 @@ export class Room extends DurableObject {
     if (a.role === 'host' || a.role === 'viewer' || a.role === 'gone') {
       await this.touch();
       await this.wakeAt(Date.now() + IDLE_MS);
+      await this.report();
     }
   }
 
@@ -232,6 +262,7 @@ export class Room extends DurableObject {
     if (this.meta && !this.host() && !this.viewers().length) {
       const active = await this.ctx.storage.get('active') ?? 0;
       if (now - active >= IDLE_MS) {
+        if (this.meta.lobby?.public) await this.directory().remove(this.meta.lobby.name);
         await this.ctx.storage.deleteAll();
         this.meta = null; this.snapshot = null;
       } else next = Math.min(next, active + IDLE_MS);

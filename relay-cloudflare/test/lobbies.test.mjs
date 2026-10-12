@@ -54,3 +54,31 @@ test('lobbies: invalid bodies are rejected with 400', async () => {
   const tooBig = await fetch(http() + '/lobbies', { method: 'POST', body: JSON.stringify({ ...ok, pad: 'x'.repeat(2000) }) });
   assert.equal(tooBig.status, 400);
 });
+
+const lobbies = async () => { const r = await fetch(http() + '/lobbies'); assert.equal(r.status, 200); return (await r.json()).lobbies; };
+// Directory updates are reported asynchronously by the room; poll briefly.
+async function eventually(check) {
+  let last;
+  for (let i = 0; i < 40; i++) { try { return await check(); } catch (e) { last = e; await new Promise(r => setTimeout(r, 100)); } }
+  throw last;
+}
+
+test('lobbies: public lobbies are listed with live host, viewer and profile info; private ones are not', async () => {
+  const pub = unique('pu'), priv = unique('pr');
+  const made = await (await create({ name: pub, viewerKey: key('v'), public: true, locked: true })).json();
+  await create({ name: priv, viewerKey: key('v'), public: false, locked: false });
+  const first = await eventually(async () => { const e = (await lobbies()).find(l => l.name === pub); assert.ok(e); return e; });
+  assert.deepEqual({ ...first, updated: 0 }, { name: pub, locked: true, hostOnline: false, viewers: 0, game: null, category: null, label: null, updated: 0 });
+  assert.equal((await lobbies()).some(l => l.name === priv), false);
+  const host = await client(made.roomId, 'host', made.hostKey); await host.next('ready');
+  host.send(JSON.stringify({ ...snapshot(), profileLabel: 'Duo / Fullgame' }));
+  const viewer = await client(made.roomId, 'viewer', key('v')); await viewer.next('ready');
+  await eventually(async () => {
+    const e = (await lobbies()).find(l => l.name === pub);
+    assert.equal(e.hostOnline, true); assert.equal(e.viewers, 1); assert.equal(e.game, 'Test'); assert.equal(e.category, 'Coop'); assert.equal(e.label, 'Duo / Fullgame');
+  });
+  host.close();
+  await eventually(async () => assert.equal((await lobbies()).find(l => l.name === pub).hostOnline, false));
+  viewer.close();
+  await eventually(async () => assert.equal((await lobbies()).find(l => l.name === pub).viewers, 0));
+});
