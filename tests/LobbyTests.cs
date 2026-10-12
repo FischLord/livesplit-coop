@@ -19,6 +19,7 @@ public static class LobbyTests {
         ClientTests(relay);
         StateTests(work);
         ConnectionTests(relay);
+        WindowTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static string Unique(string prefix){return (prefix+DateTime.UtcNow.Ticks.ToString("x")+Guid.NewGuid().ToString("N").Substring(0,4)).Substring(0,Math.Min(32,prefix.Length+18));}
@@ -116,5 +117,93 @@ public static class LobbyTests {
             right.Start();
             Check(Until(()=>right.StopReason!=null) && right.StopReason=="too_many","the lockout stops with too_many even with the right password");
         }
+    }
+    sealed class FakeSession : ICoopSession {
+        public string role="host",server="wss://relay.example/coop",stopReason,password,problem;
+        public LobbyState lobby;public bool connected;public int viewers=-1,leaves;public LobbyGrant used;public string usedPassword,invite;
+        public string Role { get { return role; } }
+        public string Server { get { return server; } set { server=value; } }
+        public LobbyState Lobby { get { return lobby; } }
+        public bool Connected { get { return connected; } }
+        public int Viewers { get { return viewers; } }
+        public string StopReason { get { return stopReason; } }
+        public string StatusLine { get { return lobby==null?"none":lobby.name+(connected?" ok":" ..."); } }
+        public string SavedPassword { get { return password; } }
+        public string JoinProblem() { return problem; }
+        public void UseLobby(LobbyGrant grant,string pw) { used=grant;usedPassword=pw;lobby=LobbyState.From(grant,role,pw);password=role=="host"?pw:null; }
+        public bool JoinInvite(string text) { string s,r,k;if(!Invite.TryParse(text,out s,out r,out k))return false;invite=text;lobby=LobbyState.FromLegacy(s,r,"viewer",k,"");return true; }
+        public void Reconnect() { }
+        public void Leave() { leaves++;lobby=null;connected=false;stopReason=null; }
+        public void ExportDiagnostics(IWin32Window owner) { }
+    }
+    static readonly BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+    static Control Find(Control parent,string name){foreach(Control c in parent.Controls){if(c.Name==name)return c;var child=Find(c,name);if(child!=null)return child;}return null;}
+    static void Click(Control c){c.GetType().GetMethod("OnClick",Hidden,null,new[]{typeof(EventArgs)},null).Invoke(c,new object[]{EventArgs.Empty});}
+    static void Pump(Func<bool> ready){var clock=Stopwatch.StartNew();while(!ready() && clock.ElapsedMilliseconds<8000){Application.DoEvents();Thread.Sleep(10);}if(!ready())throw new Exception("Window timed out");}
+    static bool Shown(Control c){return c!=null && c.Visible;}
+    static void WindowTests(string work) {
+        // Host: create panel, validation, creation, then the current-lobby panel.
+        var host=new FakeSession();
+        LobbyGrant made=null;
+        Func<string,string,string,bool,LobbyGrant> create=(s,n,p,pub)=>{made=new LobbyGrant{server=s,name=LobbyKey.Normalize(n),roomId=LobbyKey.RoomId(LobbyKey.Normalize(n)),hostKey=new string('h',43),viewerKey=LobbyKey.DeriveViewerKey(n,p),isPublic=pub,locked=p.Length>0};return made;};
+        Func<string,List<LobbyInfo>> none=s=>new List<LobbyInfo>();
+        using(var w=new CoopWindow(host,null,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"create")));
+            Check(Find(w,"join")==null,"host window has no join controls");
+            Find(w,"lobbyName").Text="a b";Click(Find(w,"create"));
+            Check(Find(w,"message").Text==Texts.T("lobby.invalidName"),"host sees the name rule");
+            Find(w,"lobbyName").Text="RvGang";Find(w,"lobbyPassword").Text="banane";((CheckBox)Find(w,"lobbyPublic")).Checked=true;
+            Click(Find(w,"create"));Pump(()=>host.used!=null);
+            Check(made.name=="rvgang" && made.isPublic && host.usedPassword=="banane","create passes name, password and visibility");
+            Pump(()=>Shown(Find(w,"leave")) && !Shown(Find(w,"create")));
+            Check(Find(w,"message").Text==Texts.T("lobby.created","rvgang"),"host is told the lobby was created");
+            Check(Shown(Find(w,"copyPassword")),"host can copy name and password");
+            Click(Find(w,"leave"));Pump(()=>Shown(Find(w,"create")));
+            Check(host.leaves==1 && host.lobby==null,"leave clears the lobby");
+            w.Close();
+        }
+        // Server errors are shown in the window.
+        var failing=new FakeSession();
+        using(var w=new CoopWindow(failing,null,(s,n,p,pub)=>{throw new LobbyException(Texts.T("lobby.taken"));},none)) {
+            w.Show();Pump(()=>Shown(Find(w,"create")));
+            Find(w,"lobbyName").Text="rvgang";Click(Find(w,"create"));
+            Pump(()=>Find(w,"message").Text==Texts.T("lobby.taken"));
+            Check(failing.lobby==null,"a failed creation keeps the session without a lobby");
+            w.Close();
+        }
+        // Viewer: list, selection fills the name, wrong password is explained and undone.
+        var viewer=new FakeSession{role="viewer"};
+        Func<string,List<LobbyInfo>> list=s=>new List<LobbyInfo>{new LobbyInfo{name="rvgang",locked=true,hostOnline=true,viewers=2,label="Duo / Fullgame"},new LobbyInfo{name="other",game="G",category="C"}};
+        using(var w=new CoopWindow(viewer,null,create,list)) {
+            w.Show();var items=(ListView)Find(w,"lobbyList");Pump(()=>items.Items.Count==2 && items.Items[0].Tag is LobbyInfo);
+            Check(Find(w,"create")==null,"viewer window has no create controls");
+            Check(items.Items[0].SubItems[2].Text=="Duo / Fullgame" && items.Items[1].SubItems[2].Text=="G · C","list shows the profile label or game and category");
+            items.Items[0].Selected=true;Pump(()=>Find(w,"lobbyName").Text=="rvgang");
+            Check(true,"selecting a lobby fills its name");
+            viewer.problem="stop first";Click(Find(w,"join"));
+            Check(Find(w,"message").Text=="stop first" && viewer.used==null,"join problems block joining");
+            viewer.problem=null;Find(w,"lobbyPassword").Text="falsch";Click(Find(w,"join"));
+            Check(viewer.used!=null && viewer.used.roomId=="lobby_rvgang" && viewer.used.viewerKey==LobbyKey.DeriveViewerKey("rvgang","falsch") && viewer.usedPassword==null,"join derives the key locally and never hands over the password");
+            viewer.stopReason="auth_failed";
+            Pump(()=>Find(w,"message").Text==Texts.T("lobby.wrongPassword"));
+            Check(viewer.leaves==1 && viewer.lobby==null && Shown(Find(w,"join")),"wrong password is explained and the lobby is forgotten");
+            viewer.used=null;Click(Find(w,"join"));Pump(()=>viewer.used!=null);viewer.connected=true;
+            Pump(()=>Shown(Find(w,"leave")));
+            Check(!Shown(Find(w,"copyPassword")) && Find(w,"copyPassword")==null,"viewers cannot copy a password");
+            w.Close();
+        }
+        // Viewer: invitation fallback under Advanced.
+        var legacy=new FakeSession{role="viewer"};
+        using(var w=new CoopWindow(legacy,null,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"join")));
+            Find(w,"invite").Text="nonsense";Click(Find(w,"joinInvite"));
+            Check(Find(w,"message").Text==Texts.T("advanced.invalidInvite"),"invalid invitation is explained");
+            Find(w,"invite").Text="lscoop:1:wss://relay.example/coop/abc#"+new string('v',32);Click(Find(w,"joinInvite"));
+            Check(legacy.invite!=null && legacy.lobby!=null,"valid invitation is handed to the session");
+            w.Close();
+        }
+        // Optional profile section is shown above the lobby.
+        var profile=new Label{Name="profileMarker",Text="profile"};
+        using(var w=new CoopWindow(new FakeSession(),profile,create,none)) { w.Show();Pump(()=>Shown(Find(w,"profileMarker")));Check(true,"profile section is embedded");w.Close(); }
     }
 }
