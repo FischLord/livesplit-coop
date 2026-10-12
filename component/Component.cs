@@ -42,7 +42,9 @@ namespace LiveSplit.Coop {
         AttemptRecorder recorder;
         IDisposable hostLock;
         string lockedPath;
-        long lastLockTry=-1000;
+        long nextLockTry;
+        // Path whose host lock failure was already logged; a failing lock is logged once per path, not every retry.
+        string lockErrorPath;
         // ProfileLabel() runs on every draw and snapshot; the pack lookup only changes with the loaded splits.
         string labelPath;
         bool labelCached;
@@ -298,8 +300,9 @@ namespace LiveSplit.Coop {
             if(!string.Equals(loaded,lockedPath,StringComparison.OrdinalIgnoreCase)) {
                 ReleaseHostLock();
                 lockedPath=loaded;
+                lockErrorPath=null;
                 TakeHostLock(loaded);
-            } else if(hostLock==null && !string.IsNullOrEmpty(loaded) && watch.ElapsedMilliseconds-lastLockTry>=1000) {
+            } else if(hostLock==null && !string.IsNullOrEmpty(loaded) && watch.ElapsedMilliseconds>=nextLockTry) {
                 // The file may appear later (first save); try again, at most once a second.
                 TakeHostLock(loaded);
             }
@@ -419,9 +422,14 @@ namespace LiveSplit.Coop {
             if(!autoTried && connection==null) { if(Lobby!=null) SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod); else SetStatus(Texts.T("status.notConnected"),Color.Gray); }
         }
         void TakeHostLock(string loaded) {
-            lastLockTry=watch.ElapsedMilliseconds;
+            // A missing file is retried every second; a failing Hold backs off to 30 seconds below.
+            nextLockTry=watch.ElapsedMilliseconds+1000;
             if(string.IsNullOrEmpty(loaded) || !File.Exists(loaded)) return;
-            try { hostLock=HostLock.Hold(loaded); } catch(Exception e) { CoopDiagnostics.Error("host_lock",e); }
+            try { hostLock=HostLock.Hold(loaded); lockErrorPath=null; }
+            catch(Exception e) {
+                nextLockTry=watch.ElapsedMilliseconds+30000;
+                if(!string.Equals(lockErrorPath,loaded,StringComparison.OrdinalIgnoreCase)) { lockErrorPath=loaded; CoopDiagnostics.Error("host_lock",e); }
+            }
         }
         void ReleaseHostLock() { if(hostLock!=null) { hostLock.Dispose();hostLock=null; } }
         public void Dispose() {
