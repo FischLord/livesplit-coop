@@ -20,6 +20,7 @@ public static class LobbyTests {
         StateTests(work);
         ConnectionTests(relay);
         WindowTests(work);
+        ComponentTests(relay,work);
         Console.WriteLine(passed+" checks passed");
     }
     static string Unique(string prefix){return (prefix+DateTime.UtcNow.Ticks.ToString("x")+Guid.NewGuid().ToString("N").Substring(0,4)).Substring(0,Math.Min(32,prefix.Length+18));}
@@ -205,5 +206,45 @@ public static class LobbyTests {
         // Optional profile section is shown above the lobby.
         var profile=new Label{Name="profileMarker",Text="profile"};
         using(var w=new CoopWindow(new FakeSession(),profile,create,none)) { w.Show();Pump(()=>Shown(Find(w,"profileMarker")));Check(true,"profile section is embedded");w.Close(); }
+    }
+    static LiveSplit.Model.LiveSplitState NewState() {
+        var run=new LiveSplit.Model.Run(new LiveSplit.Model.Comparisons.StandardComparisonGeneratorsFactory());run.Add(new LiveSplit.Model.Segment("Finish"));run.GameName="Game";run.CategoryName="Any%";
+        var state=new LiveSplit.Model.LiveSplitState(run,null,new LiveSplit.UI.Layout(),new LiveSplit.Options.LayoutSettings(),new LiveSplit.Options.Settings());
+        state.CurrentTimingMethod=LiveSplit.Model.TimingMethod.RealTime;state.CurrentComparison="Personal Best";
+        return state;
+    }
+    static System.Xml.XmlNode Xml(string inner){var doc=new System.Xml.XmlDocument();doc.LoadXml("<Settings>"+inner+"</Settings>");return doc.DocumentElement;}
+    static void ComponentTests(string relay,string work) {
+        string path=Path.Combine(work,"component-local.json");
+        if(File.Exists(path)) File.Delete(path);
+        // Settings: only the role is stored; output is stable; legacy keys are read once for migration.
+        var settings=new CoopSettings();
+        settings.LoadXml(Xml("<Version>1</Version><Address>wss://relay.example/coop</Address><Room>oldroom</Room><Role>host</Role><ProtectedKey>"+LocalState.Protect(new string('k',43))+"</ProtectedKey><ProtectedInviteKey>"+LocalState.Protect(new string('i',43))+"</ProtectedInviteKey>"));
+        Check(settings.Role=="host" && settings.Legacy!=null && settings.Legacy.roomId=="oldroom","legacy layout room is detected");
+        string a=settings.SaveXml(new System.Xml.XmlDocument()).OuterXml,b=settings.SaveXml(new System.Xml.XmlDocument()).OuterXml;
+        Check(a==b && !a.Contains("Protected") && !a.Contains("oldroom") && a.Contains("<Role>host</Role>"),"layout settings hold only the role and are stable");
+        // Component: migration, auto-connect, status line, leave.
+        var grant=LobbyClient.Create(relay,Unique("cp"),"banane",false);
+        new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);
+        var state=NewState();
+        using(var component=new CoopComponent(state,path)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            Check(component.Lobby!=null && component.Lobby.name==grant.name,"component loads the saved lobby");
+            component.Update(null,state,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(Until(()=>{component.Update(null,state,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.Connected;}),"component connects automatically on start: "+component.StatusLine);
+            Check(Until(()=>{component.Update(null,state,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.StatusLine==grant.name+" · "+Texts.T("status.host")+" · "+Texts.T("status.online",0);}),"host status line shows lobby, role and viewers: "+component.StatusLine);
+            Check(component.SavedPassword=="banane","host can read its saved password");
+            component.Leave();
+            Check(component.Lobby==null && LocalState.Load(path).lobby==null && !component.Connected,"leave forgets the lobby on disk");
+        }
+        File.Delete(path);
+        var migrated=NewState();
+        using(var component=new CoopComponent(migrated,path)) {
+            component.SetSettings(Xml("<Version>1</Version><Address>wss://relay.example/coop</Address><Room>oldroom</Room><Role>viewer</Role><ProtectedKey>"+LocalState.Protect(new string('k',43))+"</ProtectedKey><ProtectedInviteKey></ProtectedInviteKey>"));
+            var saved=LocalState.Load(path).lobby;
+            Check(saved!=null && saved.roomId=="oldroom" && saved.role=="viewer" && saved.name==null,"legacy viewer room migrates into coop-local.json");
+            Check(component.StatusLine.StartsWith(Texts.T("status.inviteRoom")),"migrated rooms are labelled as invitation rooms: "+component.StatusLine);
+        }
+        Check(new CoopComponent(NewState(),path).ContextMenuControls.Keys.SequenceEqual(new[]{Texts.T("menu.coop")}),"the context menu has a single Coop entry");
     }
 }

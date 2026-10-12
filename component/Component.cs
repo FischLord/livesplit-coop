@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Windows.Forms;
 using System.Xml;
 using LiveSplit.Model;
@@ -27,11 +28,15 @@ namespace LiveSplit.Coop {
     }
     // Kept apart from other failures so the HUD can show a short label while settings show the full instructions.
     public sealed class AutoSplitterActive : InvalidOperationException { public AutoSplitterActive(string message) : base(message) { } }
-    public sealed class CoopComponent : IComponent {
+    public sealed class CoopComponent : IComponent, ICoopSession {
         readonly LiveSplitState state;
         readonly string diagnosticId=Guid.NewGuid().ToString("N");
         string diagnosticStatus;
         readonly CoopSettings settings=new CoopSettings();
+        readonly string localPath;
+        LocalState local;
+        bool autoTried;
+        string statusLine="";
         readonly Stopwatch watch=Stopwatch.StartNew();
         readonly Font font=new Font("Segoe UI",9);
         RelayConnection connection;
@@ -47,9 +52,11 @@ namespace LiveSplit.Coop {
         readonly RainbowGraph rainbowGraph=new RainbowGraph();
         long lastRainbowUpdate=-100;
         Color colour=Color.Gray;
-        public CoopComponent(LiveSplitState state) {
-            this.state=state;settings.ConnectRequested+=Connect;settings.DisconnectRequested+=Disconnect;
-            settings.ViewerProblem=()=>AutoSplitterProblem(state);
+        public CoopComponent(LiveSplitState state) : this(state,LocalState.DefaultPath) { }
+        // The local state path is injectable for tests.
+        public CoopComponent(LiveSplitState state,string localPath) {
+            this.state=state;this.localPath=localPath;local=LocalState.Load(localPath);
+            settings.OpenRequested+=OpenWindow;
             state.OnStart+=Started;state.OnSplit+=Split;state.OnUndoSplit+=Undo;state.OnSkipSplit+=Skip;
             state.OnPause+=Paused;state.OnResume+=Resumed;state.OnReset+=Reset;
             CoopDiagnostics.Write("component_loaded",new { component=diagnosticId });
@@ -86,28 +93,72 @@ namespace LiveSplit.Coop {
             var problem=AutoSplitterProblem(state);
             if(problem!=null) throw new AutoSplitterActive(problem);
         }
+        public string Role { get { return settings.Role; } }
+        public string Server { get { return local.server ?? Invite.Community; } set { local.server=value;SaveLocal(); } }
+        public LobbyState Lobby { get { return local.lobby!=null && local.lobby.role==Role?local.lobby:null; } }
+        public bool Connected { get { return connection!=null && connection.Ready; } }
+        public int Viewers { get { return connection==null?-1:connection.Viewers; } }
+        public string StopReason { get { return connection==null?null:connection.StopReason; } }
+        public string StatusLine { get { return statusLine; } }
+        public string SavedPassword {
+            get {
+                var lobby=Lobby;
+                if(lobby==null || Role!="host") return null;
+                try { string value=LocalState.Unprotect(lobby.protectedPassword);return value.Length>0 || lobby.locked==false?value:null; }
+                catch(CryptographicException) { return null; }
+            }
+        }
+        public string JoinProblem() {
+            var problem=AutoSplitterProblem(state);
+            if(problem!=null) return problem;
+            if((connection==null || role!="viewer") && state.CurrentPhase!=TimerPhase.NotRunning) return Texts.T("viewer.stopTimer");
+            return null;
+        }
+        public void UseLobby(LobbyGrant grant,string password) { local.lobby=LobbyState.From(grant,Role,password);SaveLocal();Connect(); }
+        public bool JoinInvite(string text) {
+            string server,room,key;
+            if(!Invite.TryParse(text,out server,out room,out key)) return false;
+            local.lobby=LobbyState.FromLegacy(server,room,"viewer",key,"");SaveLocal();Connect();return true;
+        }
+        public void Reconnect() { Connect(); }
+        public void Leave() { Disconnect();local.lobby=null;SaveLocal(); }
+        void SaveLocal() {
+            try { local.Save(localPath); }
+            catch(Exception e) { CoopDiagnostics.Error("local_state",e); }
+        }
+        string LobbyTitle() { var lobby=Lobby;return lobby==null?"":lobby.name ?? Texts.T("status.inviteRoom"); }
+        void OpenWindow() {
+            using(var window=new CoopWindow(this,null)) window.ShowDialog(state.Form);
+        }
         public void Connect() {
             Disconnect();
+            var lobby=Lobby;
+            if(lobby==null) return;
             try {
-                role=settings.Role;CoopDiagnostics.Write("connect_requested",new { component=diagnosticId,role=role });
+                role=Role;CoopDiagnostics.Write("connect_requested",new { component=diagnosticId,role=role });
+                string key;
+                try { key=LocalState.Unprotect(role=="host"?lobby.protectedHostKey:lobby.protectedViewerKey); }
+                catch(CryptographicException) { SetStatus(Texts.T("lobby.keyUnreadable"),Color.IndianRed);return; }
                 if(role=="viewer") { RequireNoAutoSplitter(state);mirror=new Mirror(state); }
-                connection=new RelayConnection(settings.Address,settings.Room,role,settings.Key);
+                connection=new RelayConnection(lobby.server,lobby.roomId,role,key);
                 connection.Start();dirty=true;hasSnapshot=false;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
-                SetStatus("Connecting",Color.Goldenrod);
-            } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus("Turn off autosplitter",e.Message,Color.IndianRed); }
+                SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod);
+            } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus(Texts.T("status.autosplitter"),e.Message,Color.IndianRed); }
             catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus(e.Message,Color.IndianRed); }
         }
         public void Disconnect() {
             if(connection!=null) { CoopDiagnostics.Write("disconnect_requested",new { component=diagnosticId,role=role });connection.Dispose();connection=null; }
             if(mirror!=null) { mirror.Dispose();mirror=null; }
-            hasSnapshot=false;SetStatus("Disconnected",Color.Gray);
+            hasSnapshot=false;
+            if(Lobby==null) SetStatus(Texts.T("status.notConnected"),Color.Gray); else SetStatus(LobbyTitle()+" · "+Texts.T("status.reconnecting"),Color.Gray);
         }
         void SetStatus(string message,Color c) { SetStatus(message,message,c); }
         // hudMessage stays short enough for the layout; detailMessage (settings panel) can carry the full reason.
-        void SetStatus(string hudMessage,string detailMessage,Color c) { label="Coop: "+hudMessage;colour=c;settings.Status(detailMessage); }
+        void SetStatus(string hudMessage,string detailMessage,Color c) { statusLine=hudMessage;label="Coop: "+hudMessage;colour=c;settings.Status(detailMessage); }
         // Only a terminal Stopped phase is an error colour; Connecting/Joining/Retrying are normal in-progress states.
         static Color PhaseColor(RelayPhase phase) { return phase==RelayPhase.Stopped?Color.IndianRed:Color.Goldenrod; }
         public void Update(IInvalidator invalidator,LiveSplitState ignored,float width,float height,LayoutMode mode) {
+            if(!autoTried) { autoTried=true;if(Lobby!=null) Connect(); else SetStatus(Texts.T("status.notConnected"),Color.Gray); }
             if(watch.ElapsedMilliseconds-lastRainbowUpdate>=100) {
                 lastRainbowUpdate=watch.ElapsedMilliseconds;
                 if(rainbowGraph.Update(state) && state.Form!=null)state.Form.Invalidate();
@@ -125,7 +176,10 @@ namespace LiveSplit.Coop {
                             if(connection.Publish(snapshot,complete,generation) && complete) { publishedGeneration=generation;publishedStructure=structure; }
                             dirty=false;lastPublished=watch.ElapsedMilliseconds;
                         }
-                        SetStatus(connection.Ready?"Host connected":connection.Status,connection.Ready?Color.MediumAquamarine:PhaseColor(connection.Phase));
+                        string title=LobbyTitle();
+                        if(connection.Ready) SetStatus(title+" · "+Texts.T("status.host")+(connection.Viewers>=0?" · "+Texts.T("status.online",connection.Viewers):""),connection.Status,Color.MediumAquamarine);
+                        else if(connection.StopReason!=null) SetStatus(title+" · "+CoopWindow.Explain(connection.StopReason),connection.Status,Color.IndianRed);
+                        else SetStatus(title+" · "+Texts.T("status.reconnecting"),connection.Status,Color.Goldenrod);
                     } else {
                         // An autosplitter added while viewing would fight the mirrored timer.
                         if(watch.ElapsedMilliseconds-lastGuard>=1000) { lastGuard=watch.ElapsedMilliseconds;RequireNoAutoSplitter(state); }
@@ -143,17 +197,17 @@ namespace LiveSplit.Coop {
                             if(!live && frozenElapsed<0) frozenElapsed=Math.Min(age,1500);
                             mirror.Render(live?age:Math.Max(0,frozenElapsed),!live);
                         }
-                        if(live) SetStatus("Following host",Color.MediumAquamarine);
+                        if(live) SetStatus(LobbyTitle()+" · "+Texts.T("status.following"),Color.MediumAquamarine);
                         // A prior snapshot exists but delivery has stalled or stopped: keep the freeze visible without hiding why (retrying vs terminal).
                         else if(hasSnapshot) {
                             string hud,detail;
-                            if(!connection.Ready) { hud=connection.Phase==RelayPhase.Stopped?"Stopped — frozen":"Reconnecting — frozen";detail="OFFLINE — timer frozen ("+connection.Status+")"; }
-                            else if(!connection.HostOnline) { hud="Host offline — frozen";detail="OFFLINE — timer frozen (host disconnected from the relay)"; }
-                            else { hud="Host data stale — frozen";detail="OFFLINE — timer frozen (connected, but no fresh updates from host)"; }
+                            if(!connection.Ready) { hud=LobbyTitle()+" · "+(connection.Phase==RelayPhase.Stopped?CoopWindow.Explain(connection.StopReason):Texts.T("status.reconnecting"));detail="OFFLINE — timer frozen ("+connection.Status+")"; }
+                            else if(!connection.HostOnline) { hud=LobbyTitle()+" · "+Texts.T("status.hostOffline");detail="OFFLINE — timer frozen (host disconnected from the relay)"; }
+                            else { hud=LobbyTitle()+" · "+Texts.T("status.stale");detail="OFFLINE — timer frozen (connected, but no fresh updates from host)"; }
                             SetStatus(hud,detail,PhaseColor(connection.Phase));
                         }
-                        else if(connection.Ready) SetStatus("Waiting for host",Color.Goldenrod);
-                        else SetStatus(connection.Status,PhaseColor(connection.Phase));
+                        else if(connection.Ready) SetStatus(LobbyTitle()+" · "+Texts.T("status.waiting"),Color.Goldenrod);
+                        else SetStatus(LobbyTitle()+" · "+(connection.StopReason!=null?CoopWindow.Explain(connection.StopReason):Texts.T("status.reconnecting")),connection.Status,PhaseColor(connection.Phase));
                     }
                 } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus("Stopped: autosplitter on",e.Message,Color.IndianRed); }
                 catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus("Stopped: "+e.Message,Color.IndianRed); }
@@ -169,23 +223,15 @@ namespace LiveSplit.Coop {
         public float PaddingBottom { get { return 0; } }
         public float PaddingLeft { get { return 0; } }
         public float PaddingRight { get { return 0; } }
-        public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action>{
-            {"Coop: Reconnect",Connect},{"Coop: Disconnect",Disconnect},{"Coop: Export diagnostics...",ExportDiagnostics}}; } }
-        void ExportDiagnostics() {
+        public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action> { { Texts.T("menu.coop"),OpenWindow } }; } }
+        public void ExportDiagnostics(IWin32Window owner) {
             using(var dialog=new SaveFileDialog { Title="Export Coop diagnostics",Filter="Diagnostic log (*.jsonl)|*.jsonl",DefaultExt="jsonl",AddExtension=true,
                 FileName="LiveSplit-Coop-diagnostics-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".jsonl" }) {
-                if(dialog.ShowDialog(state.Form)!=DialogResult.OK)return;
+                if(dialog.ShowDialog(owner)!=DialogResult.OK)return;
                 try { CoopDiagnostics.Write("export_requested",new { component=diagnosticId });CoopDiagnostics.Export(dialog.FileName);
-                    MessageBox.Show(state.Form,"Diagnostics exported. This file contains connection and timer events, without room keys or invitation links.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Information);
-                } catch(Exception e) { CoopDiagnostics.Error("export",e);MessageBox.Show(state.Form,"Could not export diagnostics. Choose a writable destination and check free disk space.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
+                    MessageBox.Show(owner,"Diagnostics exported. This file contains connection and timer events, without room keys or invitation links.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                } catch(Exception e) { CoopDiagnostics.Error("export",e);MessageBox.Show(owner,"Could not export diagnostics. Choose a writable destination and check free disk space.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
             }
-        }
-        string JoinProblem() {
-            var problem=AutoSplitterProblem(state);
-            if(problem!=null)return problem;
-            if((connection==null || role!="viewer") && state.CurrentPhase!=TimerPhase.NotRunning)
-                return "Stop/reset the local timer before joining as a viewer.";
-            return null;
         }
         void Draw(Graphics g,float width,float height) {
             string players=settings.Role=="viewer" && !hasSnapshot?"Players: ?":RunProfile.CategoryLabel(state.Run);
@@ -201,7 +247,17 @@ namespace LiveSplit.Coop {
         public void DrawHorizontal(Graphics g,LiveSplitState s,float height,Region clip) { Draw(g,HorizontalWidth,height); }
         public Control GetSettingsControl(LayoutMode mode) { return settings; }
         public XmlNode GetSettings(XmlDocument doc) { return settings.SaveXml(doc); }
-        public void SetSettings(XmlNode node) { settings.LoadXml(node); }
+        public void SetSettings(XmlNode node) {
+            settings.LoadXml(node);
+            // Rooms saved in layouts by older versions move to coop-local.json once.
+            if(settings.Legacy!=null && local.lobby==null) {
+                var legacy=settings.Legacy;
+                local.lobby=LobbyState.FromLegacy(legacy.server,legacy.roomId,legacy.role,legacy.key,legacy.inviteKey);SaveLocal();
+                CoopDiagnostics.Write("legacy_room_migrated",new { component=diagnosticId,role=legacy.role });
+            }
+            // Until the first Update connects automatically, say what is about to happen.
+            if(!autoTried && connection==null) { if(Lobby!=null) SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod); else SetStatus(Texts.T("status.notConnected"),Color.Gray); }
+        }
         public void Dispose() {
             Disconnect();state.OnStart-=Started;state.OnSplit-=Split;state.OnUndoSplit-=Undo;state.OnSkipSplit-=Skip;
             state.OnPause-=Paused;state.OnResume-=Resumed;state.OnReset-=Reset;

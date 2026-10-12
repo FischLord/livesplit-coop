@@ -12,19 +12,11 @@ using LiveSplit.Coop;
 public static class Regression {
     public static void StableSettings() {
         using(var settings=new CoopSettings()) {
-            var grant=new RoomGrant {server="ws://127.0.0.1/coop",room="test",hostKey=new string('h',32),viewerKey=new string('v',32)};
-            settings.ApplyHostGrant(grant);
-            var a=settings.SaveXml(new XmlDocument()).OuterXml;
-            var b=settings.SaveXml(new XmlDocument()).OuterXml;
-            Check(a==b,"Unchanged encrypted Coop settings serialize identically");
-            grant.hostKey=new string('n',32);settings.ApplyHostGrant(grant);
-            var changed=settings.SaveXml(new XmlDocument());
-            Check(changed.OuterXml!=a,"Changed room key produces changed encrypted settings");
-            using(var restored=new CoopSettings()) {
-                restored.LoadXml(changed);
-                Check(restored.Key==grant.hostKey,"Updated encrypted key survives save/load");
-                Check(restored.SaveXml(new XmlDocument()).OuterXml==changed.OuterXml,"Loading preserves encrypted representation");
-            }
+            var doc=new XmlDocument();doc.LoadXml("<Settings><Version>2</Version><Role>host</Role></Settings>");
+            settings.LoadXml(doc.DocumentElement);
+            string a=settings.SaveXml(new XmlDocument()).OuterXml,b=settings.SaveXml(new XmlDocument()).OuterXml;
+            Check(a==b,"Coop settings serialize identically");
+            Check(!a.Contains("Protected"),"Coop settings contain no keys");
         }
     }
     sealed class Invalidator : IInvalidator {
