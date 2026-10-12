@@ -11,10 +11,9 @@ try {
     if(Get-Process LiveSplit -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe}) {
         throw 'Dieser Timer ist bereits offen.'
     }
-    # Pending component updates from older packages are applied as before.
-    if(Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Updates\graph-category.json')) {
-        & (Join-Path $PSScriptRoot 'Apply-GraphCategoryFix.ps1') -Role $Role
-    }
+    # Legacy updates of older packages (graph/category layouts, clipboard, diagnostics) must never replace this package's Coop DLL.
+    # Apply-CoopLobbies.ps1 applies only their layout part and retires the pending DLL steps.
+    & (Join-Path $PSScriptRoot 'Apply-CoopLobbies.ps1') -Role $Role
     foreach($dll in @('LiveSplit.Core.dll','UpdateManager.dll','Components\LiveSplit.Coop.dll')){[void][Reflection.Assembly]::LoadFrom((Join-Path $app $dll))}
     $pack=[LiveSplit.Coop.ProfilePack]::Find($app)
     if(!$pack){throw 'coop-profiles.json fehlt. Bitte das komplette Paket entpacken.'}
