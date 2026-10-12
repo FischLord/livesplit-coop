@@ -49,6 +49,7 @@ public static class ProfileTests {
         Texts.German=false;
         PackTests(work);
         PreparerTests(work);
+        SwitcherTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void PackTests(string work) {
@@ -119,5 +120,35 @@ public static class ProfileTests {
         var entries=settings.SelectNodes("/Settings/RecentSplits/SplitsFile");
         Check(entries.Count==1 && entries[0].InnerText==splitsPath && entries[0].Attributes["categoryName"].Value=="Map A Any%" && entries[0].Attributes["lastTimingMethod"].Value=="RealTime","the profile becomes the most recent splits once");
         Check(!settings.SelectSingleNode("/Settings/ActiveAutoSplitters").HasChildNodes,"registered autosplitters are deactivated (the layout owns the autosplitter)");
+    }
+    // Stands in for LiveSplit's TimerForm: same private method names and signatures.
+    public sealed class FakeForm {
+        public readonly List<string> calls=new List<string>();public bool allowSave=true;public LiveSplitState state;
+        bool WarnUserAboutSplitsSave(){calls.Add("warn");return allowSave;}
+        void LoadRunFromFile(string path,TimingMethod? method,string hotkeys){calls.Add("run:"+path+":"+method+":"+hotkeys);state.Run.FilePath=path;}
+        public void OpenLayoutFromFile(string path){calls.Add("layout:"+path);state.Layout.FilePath=path;}
+    }
+    public sealed class OldForm { public readonly List<string> calls=new List<string>(); }
+    static LiveSplitState NewState(){var run=new Run(new StandardComparisonGeneratorsFactory());run.Add(new Segment("Finish"));return new LiveSplitState(run,null,new LiveSplit.UI.Layout(),new LiveSplit.Options.LayoutSettings(),new LiveSplit.Options.Settings());}
+    static void SwitcherTests(string work) {
+        string root=MakePack(work,"switch");
+        var pack=ProfilePack.Load(Path.Combine(root,"coop-profiles.json"));
+        var a=pack.ByKey("a|nmg");var b=pack.ByKey("b|nmg");
+        var state=NewState();var form=new FakeForm{state=state};int commits=0;
+        var result=ProfileSwitcher.Switch(state,form,pack,a,()=>commits++,(s,l)=>{throw new Exception("no restart expected");});
+        Check(result==ProfileSwitcher.Result.Switched && commits==1,"switch succeeds and commits once");
+        Check(form.calls.SequenceEqual(new[]{"warn","run:"+pack.FullPath(a.splits)+":RealTime:Default","layout:"+pack.FullPath(a.layout)}),"warn, then splits, then layout: "+string.Join(" / ",form.calls.ToArray()));
+        var prepared=new XmlDocument();prepared.Load(pack.FullPath(a.splits));
+        Check(prepared.SelectSingleNode("/Run/LayoutPath").InnerText==pack.FullPath(a.layout),"profile is prepared before loading");
+        form.calls.Clear();
+        ProfileSwitcher.Switch(state,form,pack,pack.ByKey("a|g"),()=>commits++,null);
+        Check(form.calls.Count==2 && !form.calls.Any(c=>c.StartsWith("layout:")),"the same layout is not reloaded");
+        form.calls.Clear();form.allowSave=false;
+        Check(ProfileSwitcher.Switch(state,form,pack,b,()=>commits++,null)==ProfileSwitcher.Result.Cancelled && form.calls.SequenceEqual(new[]{"warn"}) && commits==2,"cancelling the save prompt changes nothing");
+        string[] restarted=null;
+        Check(ProfileSwitcher.Switch(state,new OldForm(),pack,b,()=>commits++,(s,l)=>{restarted=new[]{s,l};})==ProfileSwitcher.Result.Restarted,"unknown LiveSplit internals fall back to a restart");
+        Check(restarted!=null && restarted[0]==pack.FullPath(b.splits) && restarted[1]==pack.FullPath(b.layout) && commits==3,"restart gets the prepared profile and commits");
+        var running=NewState();var timer=new TimerModel{CurrentState=running};timer.Start();
+        Check(ProfileSwitcher.Switch(running,new FakeForm{state=running},pack,b,()=>commits++,null)==ProfileSwitcher.Result.Running && commits==3,"a running timer blocks switching");
     }
 }
