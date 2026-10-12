@@ -9,18 +9,28 @@ using System.Windows.Forms;
 using LiveSplit.Coop;
 
 public static class LobbyTests {
-    static int passed;
+    static WindowsFormsSynchronizationContext uiContext;
+    // The PowerShell host swaps the thread's context between calls; awaits in window code must resume on this thread.
+    static void Ui(){if(uiContext==null)uiContext=new WindowsFormsSynchronizationContext();System.Threading.SynchronizationContext.SetSynchronizationContext(uiContext);}
+    static int passed;static readonly List<string> uiErrors=new List<string>();
     static void Check(bool ok,string text){if(!ok)throw new Exception("FAIL: "+text);passed++;Console.WriteLine("PASS: "+text);}
     static void Throws<T>(Action action,string text) where T:Exception {try{action();}catch(T){Check(true,text);return;}Check(false,text);}
     public static void Run(string relay,string work) {
         Texts.German=false;
+        // Errors in window code must fail the run, never open the unhandled-exception dialog.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+        Application.ThreadException+=(o,a)=>{ lock(uiErrors) uiErrors.Add(a.Exception.ToString()); };
+        // Windows Forms does not install its context in a PowerShell host; without it, awaits resume on pool threads.
+        Ui();
         KeyTests();
         TextTests();
         ClientTests(relay);
         StateTests(work);
         ConnectionTests(relay);
         WindowTests(work);
+        lock(uiErrors) if(uiErrors.Count>0) throw new Exception("FAIL: UI thread exceptions: "+uiErrors[0]);
         ComponentTests(relay,work);
+        lock(uiErrors) if(uiErrors.Count>0) throw new Exception("FAIL: UI thread exceptions: "+uiErrors[0]);
         Console.WriteLine(passed+" checks passed");
     }
     static string Unique(string prefix){return (prefix+DateTime.UtcNow.Ticks.ToString("x")+Guid.NewGuid().ToString("N").Substring(0,4)).Substring(0,Math.Min(32,prefix.Length+18));}
@@ -120,7 +130,7 @@ public static class LobbyTests {
         }
     }
     sealed class FakeSession : ICoopSession {
-        public string role="host",server="wss://relay.example/coop",stopReason,password,problem;
+        public string role="host",server="wss://relay.example/coop",stopReason,password,problem,lastFailure,saveWarning;public bool failOnUse;
         public LobbyState lobby;public bool connected;public int viewers=-1,leaves;public LobbyGrant used;public string usedPassword,invite;
         public string Role { get { return role; } }
         public string Server { get { return server; } set { server=value; } }
@@ -131,16 +141,21 @@ public static class LobbyTests {
         public string StatusLine { get { return lobby==null?"none":lobby.name+(connected?" ok":" ..."); } }
         public string SavedPassword { get { return password; } }
         public string JoinProblem() { return problem; }
-        public void UseLobby(LobbyGrant grant,string pw) { used=grant;usedPassword=pw;lobby=LobbyState.From(grant,role,pw);password=role=="host"?pw:null; }
-        public bool JoinInvite(string text) { string s,r,k;if(!Invite.TryParse(text,out s,out r,out k))return false;invite=text;lobby=LobbyState.FromLegacy(s,r,"viewer",k,"");return true; }
+        public string LastFailure { get { return lastFailure; } }
+        public string UseLobby(LobbyGrant grant,string pw) {
+            lastFailure=null;used=grant;usedPassword=pw;
+            if(failOnUse) { lobby=null;lastFailure="rejected";return null; }
+            lobby=LobbyState.From(grant,role,pw);password=role=="host"?pw:null;return saveWarning;
+        }
+        public bool JoinInvite(string text) { string s,r,k;if(!Invite.TryParse(text,out s,out r,out k))return false;lastFailure=null;invite=text;lobby=LobbyState.FromLegacy(s,r,"viewer",k,"");return true; }
         public void Reconnect() { }
-        public void Leave() { leaves++;lobby=null;connected=false;stopReason=null; }
+        public void Leave() { leaves++;lobby=null;connected=false;stopReason=null;lastFailure=null; }
         public void ExportDiagnostics(IWin32Window owner) { }
     }
     static readonly BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
     static Control Find(Control parent,string name){foreach(Control c in parent.Controls){if(c.Name==name)return c;var child=Find(c,name);if(child!=null)return child;}return null;}
-    static void Click(Control c){c.GetType().GetMethod("OnClick",Hidden,null,new[]{typeof(EventArgs)},null).Invoke(c,new object[]{EventArgs.Empty});}
-    static void Pump(Func<bool> ready){var clock=Stopwatch.StartNew();while(!ready() && clock.ElapsedMilliseconds<8000){Application.DoEvents();Thread.Sleep(10);}if(!ready())throw new Exception("Window timed out");}
+    static void Click(Control c){Ui();c.GetType().GetMethod("OnClick",Hidden,null,new[]{typeof(EventArgs)},null).Invoke(c,new object[]{EventArgs.Empty});}
+    static void Pump(Func<bool> ready){Ui();var clock=Stopwatch.StartNew();while(!ready() && clock.ElapsedMilliseconds<8000){Application.DoEvents();Thread.Sleep(10);}if(!ready())throw new Exception("Window timed out");}
     static bool Shown(Control c){return c!=null && c.Visible;}
     static void WindowTests(string work) {
         // Host: create panel, validation, creation, then the current-lobby panel.
@@ -157,11 +172,38 @@ public static class LobbyTests {
             Click(Find(w,"create"));Pump(()=>host.used!=null);
             Check(made.name=="rvgang" && made.isPublic && host.usedPassword=="banane","create passes name, password and visibility");
             Pump(()=>Shown(Find(w,"leave")) && !Shown(Find(w,"create")));
-            Check(Find(w,"message").Text==Texts.T("lobby.created","rvgang"),"host is told the lobby was created");
+            Check(Find(w,"message").Text==Texts.T("lobby.created","rvgang") || Find(w,"message").Text==Texts.T("lobby.createdNoCopy","rvgang"),"host is told the lobby was created (and whether the clipboard took it)");
             Check(Shown(Find(w,"copyPassword")),"host can copy name and password");
             Click(Find(w,"leave"));Pump(()=>Shown(Find(w,"create")));
             Check(host.leaves==1 && host.lobby==null,"leave clears the lobby");
             w.Close();
+        }
+        // A lobby without a password gets wording without a password.
+        var open=new FakeSession();
+        using(var w=new CoopWindow(open,null,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"create")));
+            Find(w,"lobbyName").Text="opened";Click(Find(w,"create"));Pump(()=>Find(w,"message").Text.Length>0 && open.used!=null);
+            string copied=Find(w,"message").Text;
+            Check(copied==Texts.T("lobby.createdOpen","opened") || copied==Texts.T("lobby.createdOpenNoCopy","opened"),"a lobby without a password does not mention a password: "+copied);
+            w.Close();
+        }
+        // The session could not save the lobby: the window warns.
+        var unsaved=new FakeSession{saveWarning=Texts.T("lobby.saveFailed","disk full")};
+        using(var w=new CoopWindow(unsaved,null,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"create")));
+            Find(w,"lobbyName").Text="unsaved";Click(Find(w,"create"));Pump(()=>unsaved.used!=null && Find(w,"message").Text.Length>0);
+            Check(Find(w,"message").Text==unsaved.saveWarning && Find(w,"message").ForeColor==System.Drawing.Color.Firebrick,"a failed save is shown as an error after create");
+            w.Close();
+        }
+        // Closing the window while the server is still creating must not lose the lobby.
+        var closing=new FakeSession();
+        using(var gate=new ManualResetEvent(false)) {
+            var w=new CoopWindow(closing,null,(s,n,p,pub)=>{gate.WaitOne(8000);return create(s,n,p,pub);},none);
+            w.Show();Pump(()=>Shown(Find(w,"create")));
+            Find(w,"lobbyName").Text="lateone";Click(Find(w,"create"));
+            w.Close();w.Dispose();
+            gate.Set();Pump(()=>closing.used!=null);
+            Check(closing.used.name=="lateone" && closing.lobby!=null,"a lobby created after the window closed still reaches the session");
         }
         // Server errors are shown in the window.
         var failing=new FakeSession();
@@ -183,11 +225,25 @@ public static class LobbyTests {
             Check(true,"selecting a lobby fills its name");
             viewer.problem="stop first";Click(Find(w,"join"));
             Check(Find(w,"message").Text=="stop first" && viewer.used==null,"join problems block joining");
-            viewer.problem=null;Find(w,"lobbyPassword").Text="falsch";Click(Find(w,"join"));
+            viewer.problem=null;Find(w,"lobbyPassword").Text="falsch";Click(Find(w,"join"));Pump(()=>viewer.used!=null);
             Check(viewer.used!=null && viewer.used.roomId=="lobby_rvgang" && viewer.used.viewerKey==LobbyKey.DeriveViewerKey("rvgang","falsch") && viewer.usedPassword==null,"join derives the key locally and never hands over the password");
-            viewer.stopReason="auth_failed";
+            viewer.lobby=null;viewer.lastFailure="auth_failed";   // the component forgets a rejected join itself
             Pump(()=>Find(w,"message").Text==Texts.T("lobby.wrongPassword"));
-            Check(viewer.leaves==1 && viewer.lobby==null && Shown(Find(w,"join")),"wrong password is explained and the lobby is forgotten");
+            Check(viewer.leaves==0 && viewer.lobby==null && Shown(Find(w,"join")),"wrong password is explained and the window does not need to leave");
+            // Leaving while the join is still pending frees the join button again.
+            viewer.used=null;Click(Find(w,"join"));Pump(()=>viewer.used!=null && Shown(Find(w,"leave")));
+            Click(Find(w,"leave"));Pump(()=>Shown(Find(w,"join")));
+            viewer.used=null;Click(Find(w,"join"));Pump(()=>viewer.used!=null);
+            Check(viewer.used!=null,"join works again after leaving a pending join");
+            Click(Find(w,"leave"));
+            // A join that fails at once (e.g. invalid server) is reported, not left pending.
+            viewer.failOnUse=true;viewer.used=null;Click(Find(w,"join"));Pump(()=>Find(w,"message").Text==CoopWindow.Explain("rejected"));
+            Check(Shown(Find(w,"join")) && viewer.lobby==null,"a synchronous connect failure is reported and not stuck");
+            viewer.failOnUse=false;
+            // A join that takes too long says so, but keeps waiting.
+            w.SlowJoinMs=150;viewer.used=null;Click(Find(w,"join"));Pump(()=>Find(w,"message").Text==Texts.T("lobby.slow"));
+            Check(viewer.lobby!=null && Shown(Find(w,"leave")),"a slow join keeps waiting and can be left");
+            Click(Find(w,"leave"));w.SlowJoinMs=15000;
             viewer.used=null;Click(Find(w,"join"));Pump(()=>viewer.used!=null);viewer.connected=true;
             Pump(()=>Shown(Find(w,"leave")));
             Check(!Shown(Find(w,"copyPassword")) && Find(w,"copyPassword")==null,"viewers cannot copy a password");
@@ -239,6 +295,37 @@ public static class LobbyTests {
             Check(component.StatusLine==Texts.T("status.notConnected"),"status says not in a lobby right after leave: "+component.StatusLine);
             component.Update(null,state,200,22,LiveSplit.UI.LayoutMode.Vertical);
             Check(component.StatusLine==Texts.T("status.notConnected"),"status stays at not in a lobby after the next update: "+component.StatusLine);
+        }
+        // Viewer joins are unconfirmed: nothing is saved until the relay accepted them.
+        string joinPath=Path.Combine(work,"join-local.json");
+        if(File.Exists(joinPath)) File.Delete(joinPath);
+        var joinState=NewState();
+        using(var component=new CoopComponent(joinState,joinPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            var wrong=new LobbyGrant { server=relay,name=grant.name,roomId=grant.roomId,viewerKey=LobbyKey.DeriveViewerKey(grant.name,"falsch"),locked=true };
+            Check(component.UseLobby(wrong,null)==null && component.Lobby!=null,"a viewer join is held in memory first");
+            Check(!File.Exists(joinPath) || LocalState.Load(joinPath).lobby==null,"an unconfirmed join is not on disk");
+            Check(Until(()=>{component.Update(null,joinState,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.Lobby==null;}),"a rejected join is forgotten by the component");
+            Check(component.LastFailure=="auth_failed" && (!File.Exists(joinPath) || LocalState.Load(joinPath).lobby==null),"the failure is recorded and nothing was saved");
+            Check(component.StatusLine==Texts.T("status.notConnected"),"status is back to not in a lobby: "+component.StatusLine);
+            var right=new LobbyGrant { server=relay,name=grant.name,roomId=grant.roomId,viewerKey=grant.viewerKey,locked=true };
+            component.UseLobby(right,null);
+            Check(component.LastFailure==null,"a new join clears the last failure");
+            Check(Until(()=>{component.Update(null,joinState,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.Connected;}),"a correct join connects");
+            Check(Until(()=>{component.Update(null,joinState,200,22,LiveSplit.UI.LayoutMode.Vertical);var saved=LocalState.Load(joinPath).lobby;return saved!=null && saved.roomId==grant.roomId;}),"a confirmed join is saved");
+            component.Leave();
+            var invalid=new LobbyGrant { server="ws://example.com/coop",name="abc",roomId="lobby_abc",viewerKey=new string('v',43) };
+            Check(component.UseLobby(invalid,null)==null && component.Lobby==null && component.LastFailure=="rejected","a join that cannot even start is forgotten with the rejected code");
+            Check(component.StatusLine==Texts.T("status.notConnected") && LocalState.Load(joinPath).lobby==null,"nothing is shown or stored for it");
+            component.Leave();
+            Check(component.LastFailure==null,"leave clears the last failure");
+        }
+        // A host lobby that cannot be saved still works, and the caller is warned.
+        string blocker=Path.Combine(work,"not-a-folder");File.WriteAllText(blocker,"x");
+        using(var component=new CoopComponent(NewState(),Path.Combine(blocker,"coop-local.json"))) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            string warning=component.UseLobby(grant,"banane");
+            Check(warning!=null && warning.StartsWith(Texts.T("lobby.saveFailed","").Substring(0,20)) && component.Lobby!=null,"a failed save is reported while the lobby stays usable: "+warning);
         }
         // A role change in the layout settings drops the connection of the old role.
         new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);

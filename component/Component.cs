@@ -36,6 +36,9 @@ namespace LiveSplit.Coop {
         readonly string localPath;
         LocalState local;
         bool autoTried;
+        // A viewer lobby is only written to coop-local.json once the relay accepted it; until then it lives in memory.
+        bool unconfirmed;
+        string lastFailure,saveError;
         string statusLine="";
         readonly Stopwatch watch=Stopwatch.StartNew();
         readonly Font font=new Font("Segoe UI",9);
@@ -114,23 +117,44 @@ namespace LiveSplit.Coop {
             if((connection==null || role!="viewer") && state.CurrentPhase!=TimerPhase.NotRunning) return Texts.T("viewer.stopTimer");
             return null;
         }
-        public void UseLobby(LobbyGrant grant,string password) { local.lobby=LobbyState.From(grant,Role,password);SaveLocal();Connect(); }
+        public string LastFailure { get { return lastFailure; } }
+        // Returns null, or a warning when a host lobby works but could not be saved.
+        public string UseLobby(LobbyGrant grant,string password) {
+            lastFailure=null;
+            local.lobby=LobbyState.From(grant,Role,password);
+            unconfirmed=Role=="viewer";
+            string warning=null;
+            if(!unconfirmed && !SaveLocal()) warning=Texts.T("lobby.saveFailed",saveError);
+            Connect();
+            return warning;
+        }
         public bool JoinInvite(string text) {
             string server,room,key;
             if(!Invite.TryParse(text,out server,out room,out key)) return false;
-            local.lobby=LobbyState.FromLegacy(server,room,"viewer",key,"");SaveLocal();Connect();return true;
+            lastFailure=null;
+            local.lobby=LobbyState.FromLegacy(server,room,"viewer",key,"");unconfirmed=true;
+            Connect();return true;
         }
         public void Reconnect() { Connect(); }
-        public void Leave() { local.lobby=null;Disconnect();SaveLocal(); }
-        void SaveLocal() {
-            try { local.Save(localPath); }
-            catch(Exception e) { CoopDiagnostics.Error("local_state",e); }
+        public void Leave() { lastFailure=null;unconfirmed=false;local.lobby=null;Disconnect();SaveLocal(); }
+        // An unconfirmed lobby never reaches the file, whatever else is saved meanwhile.
+        bool SaveLocal() {
+            var held=local.lobby;
+            try { if(unconfirmed) local.lobby=null;local.Save(localPath);return true; }
+            catch(Exception e) { saveError=e.Message;CoopDiagnostics.Error("local_state",e);return false; }
+            finally { local.lobby=held; }
         }
+        // The relay (or a local connect error) turned an unconfirmed lobby down: forget it and remember why.
+        void ForgetUnconfirmed(string code) { unconfirmed=false;local.lobby=null;lastFailure=code;Disconnect(); }
         string LobbyTitle() { var lobby=Lobby;return lobby==null?"":lobby.name ?? Texts.T("status.inviteRoom"); }
         void OpenWindow(IWin32Window owner) {
             using(var window=new CoopWindow(this,null)) window.ShowDialog(owner);
         }
         public void Connect() {
+            ConnectCore();
+            if(unconfirmed && connection==null) ForgetUnconfirmed("rejected");
+        }
+        void ConnectCore() {
             Disconnect();
             var lobby=Lobby;
             if(lobby==null) return;
@@ -165,6 +189,10 @@ namespace LiveSplit.Coop {
             }
             // The role is set per layout; a connection made for the other role would publish or mirror against the wrong timer.
             if(connection!=null && role!=Role) { Disconnect();if(Lobby!=null) Connect(); }
+            if(unconfirmed && connection!=null) {
+                if(connection.Ready) { unconfirmed=false;SaveLocal(); }
+                else if(connection.StopReason!=null) ForgetUnconfirmed(connection.StopReason);
+            }
             if(connection!=null) {
                 try {
                     if(role=="host") {

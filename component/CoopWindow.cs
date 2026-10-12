@@ -17,7 +17,8 @@ namespace LiveSplit.Coop {
         string StatusLine { get; }
         string SavedPassword { get; }   // host only, null when unknown
         string JoinProblem();           // why this copy cannot follow a host right now, or null
-        void UseLobby(LobbyGrant grant,string password);
+        string LastFailure { get; }     // why the last UseLobby/JoinInvite was turned down (StopReason code, or "rejected"); null otherwise
+        string UseLobby(LobbyGrant grant,string password);   // null, or a warning to show (e.g. the lobby could not be saved)
         bool JoinInvite(string invite);
         void Reconnect();
         void Leave();
@@ -39,7 +40,9 @@ namespace LiveSplit.Coop {
         readonly TextBox server=new TextBox { Name="server",Width=360 };
         readonly TextBox invite=new TextBox { Name="invite",Width=360,MaxLength=2048 };
         readonly Timer refresh=new Timer { Interval=300 };
-        bool busy,pendingJoin;
+        bool busy,pendingJoin,slowShown;
+        int pendingSince;
+        public int SlowJoinMs=15000;
         public CoopWindow(ICoopSession session,Control profileSection) : this(session,profileSection,LobbyClient.Create,LobbyClient.List) { }
         public CoopWindow(ICoopSession session,Control profileSection,Func<string,string,string,bool,LobbyGrant> create,Func<string,List<LobbyInfo>> list) {
             this.session=session;this.create=create;this.list=list;
@@ -67,7 +70,7 @@ namespace LiveSplit.Coop {
         void BuildCurrent() {
             var reconnect=Action("reconnect","lobby.reconnect");reconnect.Click+=(s,e)=>{ message.Text="";session.Reconnect();Sync(); };
             var leave=Action("leave","lobby.leave");
-            leave.Click+=(s,e)=>{ session.Leave();message.Text="";Sync();if(session.Role!="host") LoadList(); };
+            leave.Click+=(s,e)=>{ session.Leave();pendingJoin=busy=false;message.Text="";Sync();if(session.Role!="host") LoadList(); };
             var row=Row(reconnect,leave);
             if(session.Role=="host") { var copy=Action("copyPassword","lobby.copyPassword");copy.Click+=(s,e)=>CopyInfo();row.Controls.Add(copy); }
             current.Controls.Add(row);
@@ -84,7 +87,7 @@ namespace LiveSplit.Coop {
             lobbies.Columns.Add(Texts.T("lobby.column.run"),200);lobbies.Columns.Add(Texts.T("lobby.column.online"),110);
             lobbies.SelectedIndexChanged+=(s,e)=>{ if(lobbies.SelectedItems.Count>0 && lobbies.SelectedItems[0].Tag is LobbyInfo) name.Text=((LobbyInfo)lobbies.SelectedItems[0].Tag).name; };
             lobbies.DoubleClick+=(s,e)=>password.Focus();
-            var go=Action("join","lobby.join");go.Click+=(s,e)=>Join();
+            var go=Action("join","lobby.join");go.Click+=async(s,e)=>await JoinAsync();
             var reload=Action("refresh","lobby.refresh");reload.Click+=(s,e)=>LoadList();
             joinPanel.Controls.Add(new Label { Text=Texts.T("lobby.publicList"),AutoSize=true });joinPanel.Controls.Add(lobbies);
             joinPanel.Controls.Add(Row(Caption("lobby.name"),name));
@@ -112,15 +115,17 @@ namespace LiveSplit.Coop {
             return value;
         }
         void Sync() {
+            // The component forgets a rejected join by itself; the window only explains what happened.
+            if(pendingJoin) {
+                if(session.Lobby==null) { pendingJoin=busy=false;Report(Explain(session.LastFailure ?? "rejected"),true); }
+                else if(session.Connected) { pendingJoin=busy=false;message.Text=""; }
+                else if(!slowShown && unchecked(Environment.TickCount-pendingSince)>=SlowJoinMs) { slowShown=true;message.ForeColor=SystemColors.GrayText;message.Text=Texts.T("lobby.slow"); }
+            }
             bool has=session.Lobby!=null;
             current.Visible=has;createPanel.Visible=!has && session.Role=="host";joinPanel.Visible=!has && session.Role!="host";
             if(!busy) status.Text=session.StatusLine;
             Find("reconnect").Visible=has && !session.Connected && session.StopReason!=null && !pendingJoin;
             var copy=Find("copyPassword");if(copy!=null) copy.Visible=has && session.SavedPassword!=null;
-            if(pendingJoin) {
-                if(session.Connected) { pendingJoin=busy=false;message.Text=""; }
-                else if(session.StopReason!=null) { pendingJoin=busy=false;string reason=session.StopReason;session.Leave();Report(Explain(reason),true);Sync(); }
-            }
         }
         Control Find(string controlName) { var found=Controls.Find(controlName,true);return found.Length>0?found[0]:null; }
         public static string Explain(string reason) {
@@ -141,27 +146,36 @@ namespace LiveSplit.Coop {
             busy=true;string target=ApplyServer(),secret=password.Text;bool listed=isPublic.Checked;status.Text=Texts.T("lobby.creating");
             try {
                 var grant=await Task.Run(()=>create(target,lobbyName,secret,listed));
-                if(IsDisposed) return;
-                session.UseLobby(grant,secret);
-                Copy(Info(grant.name,secret));
-                Report(Texts.T("lobby.created",grant.name),false);
+                // The lobby exists on the server now, so the session gets it even if the window was closed meanwhile.
+                string warning=session.UseLobby(grant,secret);
+                if(Gone) return;
+                bool copied=Copy(Info(grant.name,secret));
+                if(warning!=null) Report(warning,true);
+                else Report(CreatedText(grant.name,secret.Length>0,copied),false);
             } catch(Exception e) {
-                if(!IsDisposed) Report(e is LobbyException?e.Message:Texts.T("lobby.unreachable",e.Message),true);
+                if(!Gone) Report(e is LobbyException?e.Message:Texts.T("lobby.unreachable",e.Message),true);
             } finally {
                 busy=false;
-                if(!IsDisposed) Sync();
+                if(!Gone) Sync();
             }
         }
-        void Join() {
+        static string CreatedText(string lobby,bool hasPassword,bool copied) {
+            if(hasPassword) return Texts.T(copied?"lobby.created":"lobby.createdNoCopy",lobby);
+            return Texts.T(copied?"lobby.createdOpen":"lobby.createdOpenNoCopy",lobby);
+        }
+        async Task JoinAsync() {
             if(busy) return;
             message.Text="";
             string lobbyName=LobbyKey.Normalize(name.Text);
             if(lobbyName==null) { Report(Texts.T("lobby.invalidName"),true);return; }
             string problem=session.JoinProblem();
             if(problem!=null) { Report(problem,true);return; }
-            var grant=new LobbyGrant { server=ApplyServer(),name=lobbyName,roomId=LobbyKey.RoomId(lobbyName),
-                viewerKey=LobbyKey.DeriveViewerKey(lobbyName,password.Text),locked=password.Text.Length>0 };
-            busy=pendingJoin=true;status.Text=Texts.T("lobby.joining");
+            busy=true;string target=ApplyServer(),secret=password.Text;status.Text=Texts.T("lobby.joining");
+            // PBKDF2 takes a noticeable moment; keep the window responsive.
+            var grant=await Task.Run(()=>new LobbyGrant { server=target,name=lobbyName,roomId=LobbyKey.RoomId(lobbyName),
+                viewerKey=LobbyKey.DeriveViewerKey(lobbyName,secret),locked=secret.Length>0 });
+            if(Gone) return;
+            StartPending();
             session.UseLobby(grant,null);
             Sync();
         }
@@ -170,15 +184,18 @@ namespace LiveSplit.Coop {
             string problem=session.JoinProblem();
             if(problem!=null) { Report(problem,true);return; }
             if(!session.JoinInvite(invite.Text)) { Report(Texts.T("advanced.invalidInvite"),true);return; }
-            busy=pendingJoin=true;
+            StartPending();
             Sync();
         }
+        // Async continuations must not touch controls once the window is closing or closed.
+        bool Gone { get { return base.IsDisposed || !IsHandleCreated; } }
+        void StartPending() { busy=pendingJoin=true;slowShown=false;pendingSince=Environment.TickCount; }
         async void LoadList() {
             string target=ApplyServer();
             lobbies.Items.Clear();lobbies.Items.Add(new ListViewItem(Texts.T("lobby.loading")));
             try {
                 var found=await Task.Run(()=>list(target));
-                if(IsDisposed) return;
+                if(Gone) return;
                 lobbies.Items.Clear();
                 foreach(var l in found) {
                     string run=l.label ?? ((l.game ?? "")+(l.category!=null?" · "+l.category:""));
@@ -187,7 +204,7 @@ namespace LiveSplit.Coop {
                 }
                 if(found.Count==0) lobbies.Items.Add(new ListViewItem(Texts.T("lobby.none")));
             } catch(Exception e) {
-                if(IsDisposed) return;
+                if(Gone) return;
                 lobbies.Items.Clear();
                 Report(e is LobbyException?e.Message:Texts.T("lobby.unreachable",e.Message),true);
             }

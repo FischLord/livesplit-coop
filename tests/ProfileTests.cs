@@ -47,6 +47,7 @@ public static class ProfileTests {
     }
     public static void Run(string work) {
         Texts.German=false;
+        System.Windows.Forms.Application.SetUnhandledExceptionMode(System.Windows.Forms.UnhandledExceptionMode.ThrowException);
         PackTests(work);
         PreparerTests(work);
         SwitcherTests(work);
