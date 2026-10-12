@@ -130,8 +130,9 @@ public static class LobbyTests {
         }
     }
     sealed class FakeSession : ICoopSession {
-        public string role="host",server="wss://relay.example/coop",stopReason,password,problem,lastFailure,saveWarning;public bool failOnUse;
+        public string profileText,role="host",server="wss://relay.example/coop",stopReason,password,problem,lastFailure,saveWarning;public bool failOnUse;
         public LobbyState lobby;public bool connected;public int viewers=-1,leaves;public LobbyGrant used;public string usedPassword,invite;
+        public string ProfileText { get { return profileText; } }
         public string Role { get { return role; } }
         public string Server { get { return server; } set { server=value; } }
         public LobbyState Lobby { get { return lobby; } }
@@ -192,7 +193,7 @@ public static class LobbyTests {
         LobbyGrant made=null;
         Func<string,string,string,bool,LobbyGrant> create=(s,n,p,pub)=>{made=new LobbyGrant{server=s,name=LobbyKey.Normalize(n),roomId=LobbyKey.RoomId(LobbyKey.Normalize(n)),hostKey=new string('h',43),viewerKey=LobbyKey.DeriveViewerKey(n,p),isPublic=pub,locked=p.Length>0};return made;};
         Func<string,List<LobbyInfo>> none=s=>new List<LobbyInfo>();
-        using(var w=new CoopWindow(host,null,create,none)) {
+        using(var w=new CoopWindow(host,create,none)) {
             w.Show();Pump(()=>Shown(Find(w,"create")));
             Check(Find(w,"join")==null,"host window has no join controls");
             Find(w,"lobbyName").Text="a b";Click(Find(w,"create"));
@@ -216,7 +217,7 @@ public static class LobbyTests {
         // A host room from before lobbies has no name: it shares its invitation instead.
         var oldHost=new FakeSession();
         oldHost.lobby=LobbyState.FromLegacy("wss://relay.example/coop","oldroom","host",new string('k',43),new string('i',43));
-        using(var w=new CoopWindow(oldHost,null,create,none)) {
+        using(var w=new CoopWindow(oldHost,create,none)) {
             w.Show();Pump(()=>Shown(Find(w,"copyPassword")) && Find(w,"copyPassword").Text==Texts.T("lobby.copyInvite"));
             Check(true,"a legacy host room offers to copy its invitation");
             Check(oldHost.ShareText=="lscoop:1:wss://relay.example/coop/oldroom#"+new string('i',43),"the invitation code carries the viewer key");
@@ -224,7 +225,7 @@ public static class LobbyTests {
         }
         // A lobby without a password gets wording without a password.
         var open=new FakeSession();
-        using(var w=new CoopWindow(open,null,create,none)) {
+        using(var w=new CoopWindow(open,create,none)) {
             w.Show();Pump(()=>Shown(Find(w,"create")));
             Find(w,"lobbyName").Text="opened";Click(Find(w,"create"));Pump(()=>Find(w,"message").Text.Length>0 && open.used!=null);
             string copied=Find(w,"message").Text;
@@ -233,7 +234,7 @@ public static class LobbyTests {
         }
         // The session could not save the lobby: the window warns.
         var unsaved=new FakeSession{saveWarning=Texts.T("lobby.saveFailed","disk full")};
-        using(var w=new CoopWindow(unsaved,null,create,none)) {
+        using(var w=new CoopWindow(unsaved,create,none)) {
             w.Show();Pump(()=>Shown(Find(w,"create")));
             Find(w,"lobbyName").Text="unsaved";Click(Find(w,"create"));Pump(()=>unsaved.used!=null && Find(w,"message").Text.Length>0);
             Check(Find(w,"message").Text==unsaved.saveWarning && Find(w,"message").ForeColor==System.Drawing.Color.Firebrick,"a failed save is shown as an error after create");
@@ -242,7 +243,7 @@ public static class LobbyTests {
         // Closing the window while the server is still creating must not lose the lobby.
         var closing=new FakeSession();
         using(var gate=new ManualResetEvent(false)) {
-            var w=new CoopWindow(closing,null,(s,n,p,pub)=>{gate.WaitOne(8000);return create(s,n,p,pub);},none);
+            var w=new CoopWindow(closing,(s,n,p,pub)=>{gate.WaitOne(8000);return create(s,n,p,pub);},none);
             w.Show();Pump(()=>Shown(Find(w,"create")));
             Find(w,"lobbyName").Text="lateone";Click(Find(w,"create"));
             w.Close();w.Dispose();
@@ -251,7 +252,7 @@ public static class LobbyTests {
         }
         // Server errors are shown in the window.
         var failing=new FakeSession();
-        using(var w=new CoopWindow(failing,null,(s,n,p,pub)=>{throw new LobbyException(Texts.T("lobby.taken"));},none)) {
+        using(var w=new CoopWindow(failing,(s,n,p,pub)=>{throw new LobbyException(Texts.T("lobby.taken"));},none)) {
             w.Show();Pump(()=>Shown(Find(w,"create")));
             Find(w,"lobbyName").Text="rvgang";Click(Find(w,"create"));
             Pump(()=>Find(w,"message").Text==Texts.T("lobby.taken"));
@@ -261,7 +262,7 @@ public static class LobbyTests {
         // Viewer: list, selection fills the name, wrong password is explained and undone.
         var viewer=new FakeSession{role="viewer"};
         Func<string,List<LobbyInfo>> list=s=>new List<LobbyInfo>{new LobbyInfo{name="rvgang",locked=true,hostOnline=true,viewers=2,label="Duo / Fullgame"},new LobbyInfo{name="other",game="G",category="C"}};
-        using(var w=new CoopWindow(viewer,null,create,list)) {
+        using(var w=new CoopWindow(viewer,create,list)) {
             w.Show();var items=(ListView)Find(w,"lobbyList");Pump(()=>items.Items.Count==2 && items.Items[0].Tag is LobbyInfo);
             Check(Find(w,"create")==null,"viewer window has no create controls");
             Check(items.Items[0].SubItems[2].Text=="Duo / Fullgame" && items.Items[1].SubItems[2].Text=="G · C","list shows the profile label or game and category");
@@ -297,7 +298,7 @@ public static class LobbyTests {
         }
         // Viewer: invitation fallback under Advanced.
         var legacy=new FakeSession{role="viewer"};
-        using(var w=new CoopWindow(legacy,null,create,none)) {
+        using(var w=new CoopWindow(legacy,create,none)) {
             w.Show();Pump(()=>Shown(Find(w,"join")));
             Find(w,"invite").Text="nonsense";Click(Find(w,"joinInvite"));
             Check(Find(w,"message").Text==Texts.T("advanced.invalidInvite"),"invalid invitation is explained");
@@ -307,7 +308,7 @@ public static class LobbyTests {
         }
         // A session that cannot save shows its warning permanently, not only after creating.
         var warned=new FakeSession();
-        using(var w=new CoopWindow(warned,null,create,none)) {
+        using(var w=new CoopWindow(warned,create,none)) {
             w.Show();Pump(()=>Shown(Find(w,"create")));
             Check(!Shown(Find(w,"saveWarning")),"no save warning while saving works");
             warned.warn=Texts.T("local.saveFailed","disk full");Pump(()=>Shown(Find(w,"saveWarning")));
@@ -317,7 +318,7 @@ public static class LobbyTests {
         }
         // An invitation cannot be used while a join is pending.
         var pendingViewer=new FakeSession{role="viewer"};
-        using(var w=new CoopWindow(pendingViewer,null,create,list)) {
+        using(var w=new CoopWindow(pendingViewer,create,list)) {
             w.Show();var items=(ListView)Find(w,"lobbyList");Pump(()=>items.Items.Count==2 && items.Items[0].Tag is LobbyInfo);
             items.Items[0].Selected=true;Pump(()=>Find(w,"lobbyName").Text=="rvgang");
             Click(Find(w,"join"));Pump(()=>pendingViewer.used!=null);
@@ -325,9 +326,9 @@ public static class LobbyTests {
             Check(pendingViewer.invite==null,"an invitation is ignored while a join is pending");
             w.Close();
         }
-        // Optional profile section is shown above the lobby.
-        var profile=new Label{Name="profileMarker",Text="profile"};
-        using(var w=new CoopWindow(new FakeSession(),profile,create,none)) { w.Show();Pump(()=>Shown(Find(w,"profileMarker")));Check(true,"profile section is embedded");w.Close(); }
+        // The host's profile label appears in the lobby info.
+        var labelled=new FakeSession{profileText="Duo / Fullgame"};labelled.UseLobby(made,"banane");
+        using(var w=new CoopWindow(labelled,create,none)) { w.Show();Pump(()=>Shown(Find(w,"lobbyInfo")) && Find(w,"lobbyInfo").Text.EndsWith(" · Duo / Fullgame"));Check(true,"lobby info shows the profile label");w.Close(); }
     }
     static LiveSplit.Model.LiveSplitState NewState() {
         var run=new LiveSplit.Model.Run(new LiveSplit.Model.Comparisons.StandardComparisonGeneratorsFactory());run.Add(new LiveSplit.Model.Segment("Finish"));run.GameName="Game";run.CategoryName="Any%";

@@ -77,8 +77,7 @@ namespace LiveSplit.Coop {
         CoopComponent(LiveSplitState state,string localPath,ProfilePack pack,bool packKnown) {
             this.pack=pack;packLoaded=packKnown;
             this.state=state;this.localPath=localPath;local=LocalState.Load(localPath);
-            // Opened from the layout-settings dialog the window offers no profile switching: a swap there would dispose this dialog's own layout.
-            settings.OpenRequested+=()=>{ var dialog=settings.FindForm();OpenWindow(dialog ?? state.Form,dialog!=null); };
+            settings.OpenRequested+=()=>{ var dialog=settings.FindForm();OpenWindow(dialog ?? state.Form); };
             state.OnStart+=Started;state.OnSplit+=Split;state.OnUndoSplit+=Undo;state.OnSkipSplit+=Skip;
             state.OnPause+=Paused;state.OnResume+=Resumed;state.OnReset+=Reset;
             CoopDiagnostics.Write("component_loaded",new { component=diagnosticId });
@@ -217,40 +216,10 @@ namespace LiveSplit.Coop {
         // The relay (or a local connect error) turned an unconfirmed lobby down: forget it and remember why.
         void ForgetUnconfirmed(string code) { unconfirmed=false;local.lobby=null;lastFailure=code;Disconnect(); }
         string LobbyTitle() { var lobby=Lobby;return lobby==null?"":lobby.name ?? Texts.T("status.inviteRoom"); }
-        void OpenWindow(IWin32Window owner,bool fromSettings) {
-            Control section=null;
-            ProfileSection chooser=null;
-            var available=Pack;
-            if(available!=null) {
-                if(fromSettings) section=new Label { Name="profileUseMenu",AutoSize=true,MaximumSize=new Size(480,0),Text=Texts.T("profile.useMenu") };
-                else {
-                    var current=available.ForSplits(state.Run.FilePath) ?? available.ByKey(local.lastProfile);
-                    chooser=new ProfileSection(available,current,Role=="viewer",hostLabel,state.CurrentPhase!=TimerPhase.NotRunning);
-                    section=chooser;
-                }
-            }
-            using(var window=new CoopWindow(this,section)) window.ShowDialog(owner);
-            if(chooser==null || chooser.Chosen==null) return;
-            // The menu handler that opened this window must have unwound before the layout (and with it this component) is replaced.
-            var profile=chooser.Chosen;var form=state.Form;
-            if(form!=null && form.IsHandleCreated && !form.IsDisposed) form.BeginInvoke(new Action(()=>LoadProfile(profile,form)));
-            else LoadProfile(profile,form);
+        void OpenWindow(IWin32Window owner) {
+            using(var window=new CoopWindow(this)) window.ShowDialog(owner);
         }
-        // After the layout changes, LiveSplit disposes this component; the new one reconnects to the lobby by itself.
-        // Nothing of this component is used after Switch returns: the swap may have disposed it.
-        void LoadProfile(PackProfile profile,Form owner) {
-            string id=diagnosticId;
-            try {
-                var result=ProfileSwitcher.Switch(state,state.Form,Pack,profile,()=>{
-                    local.lastProfile=Pack.Key(profile);
-                    if(!SaveLocal()) throw new InvalidOperationException(Texts.T("profile.saveFailed",saveError));
-                });
-                CoopDiagnostics.Write("profile_switch",new { component=id,result=result.ToString() });
-            } catch(Exception e) {
-                CoopDiagnostics.Error("profile_switch",e);
-                MessageBox.Show(owner,Texts.T("profile.failed",e.Message),Texts.T("window.title"),MessageBoxButtons.OK,MessageBoxIcon.Warning);
-            }
-        }
+        public string ProfileText { get { string label=ProfileLabel();return label.Length>0?label:null; } }
         public void Connect() {
             connectFailure=null;
             ConnectCore();
@@ -384,7 +353,7 @@ namespace LiveSplit.Coop {
         public float PaddingBottom { get { return 0; } }
         public float PaddingLeft { get { return 0; } }
         public float PaddingRight { get { return 0; } }
-        public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action> { { Texts.T("menu.coop"),()=>OpenWindow(state.Form,false) } }; } }
+        public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action> { { Texts.T("menu.coop"),()=>OpenWindow(state.Form) } }; } }
         public void ExportDiagnostics(IWin32Window owner) {
             using(var dialog=new SaveFileDialog { Title="Export Coop diagnostics",Filter="Diagnostic log (*.jsonl)|*.jsonl",DefaultExt="jsonl",AddExtension=true,
                 FileName="LiveSplit-Coop-diagnostics-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".jsonl" }) {

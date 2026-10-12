@@ -23,6 +23,7 @@ namespace LiveSplit.Coop {
         void ReopenLast();
         string LastFailure { get; }     // why the last UseLobby/JoinInvite was turned down (StopReason code, "autosplitter", "key_unreadable" or "rejected"); null otherwise
         string Note { get; }            // last split-saving note for viewers, or null
+        string ProfileText { get; }     // what the host runs (profile label), or null
         string SaveWarning { get; }     // localized warning while coop-local.json cannot be written, else null
         string UseLobby(LobbyGrant grant,string password);   // null, or a warning to show (e.g. the lobby could not be saved)
         bool JoinInvite(string invite);
@@ -30,7 +31,7 @@ namespace LiveSplit.Coop {
         void Leave();
         void ExportDiagnostics(IWin32Window owner);
     }
-    // One window for everything coop: optional profile section, lobby (create or join), advanced options.
+    // One window for everything coop: lobby (create or join), advanced options.
     public sealed class CoopWindow : Form {
         readonly ICoopSession session;
         readonly Func<string,string,string,bool,LobbyGrant> create;
@@ -52,14 +53,13 @@ namespace LiveSplit.Coop {
         bool busy,pendingJoin,slowShown;
         int pendingSince;
         public int SlowJoinMs=15000;
-        public CoopWindow(ICoopSession session,Control profileSection) : this(session,profileSection,LobbyClient.Create,LobbyClient.List) { }
-        public CoopWindow(ICoopSession session,Control profileSection,Func<string,string,string,bool,LobbyGrant> create,Func<string,List<LobbyInfo>> list) {
+        public CoopWindow(ICoopSession session) : this(session,LobbyClient.Create,LobbyClient.List) { }
+        public CoopWindow(ICoopSession session,Func<string,string,string,bool,LobbyGrant> create,Func<string,List<LobbyInfo>> list) {
             this.session=session;this.create=create;this.list=list;
             Text=Texts.T("window.title");Font=new Font("Segoe UI",9F);FormBorderStyle=FormBorderStyle.FixedDialog;
             StartPosition=FormStartPosition.CenterParent;ShowInTaskbar=false;MinimizeBox=MaximizeBox=false;
             AutoScaleMode=AutoScaleMode.Dpi;AutoSize=true;AutoSizeMode=AutoSizeMode.GrowAndShrink;MinimumSize=new Size(530,0);
             Controls.Add(body);
-            if(profileSection!=null) { body.Controls.Add(Heading("section.profile"));body.Controls.Add(profileSection); }
             body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);body.Controls.Add(note);body.Controls.Add(saveWarning);
             BuildCurrent();
             if(session.Role=="host") BuildCreate(); else BuildJoin();
@@ -139,7 +139,7 @@ namespace LiveSplit.Coop {
             string warning=session.SaveWarning;saveWarning.Text=warning ?? "";saveWarning.Visible=warning!=null;
             Find("reconnect").Visible=has && !session.Connected && session.StopReason!=null && !pendingJoin;
             var lobby=session.Lobby;
-            if(lobby!=null) lobbyInfo.Text=lobby.name==null?Texts.T("status.inviteRoom"):lobby.name+" · "+Texts.T(lobby.isPublic?"status.public":"status.private");
+            if(lobby!=null) lobbyInfo.Text=lobby.name==null?Texts.T("status.inviteRoom"):lobby.name+" · "+Texts.T(lobby.isPublic?"status.public":"status.private")+(session.ProfileText==null?"":" · "+session.ProfileText);
             var copy=Find("copyPassword");
             if(copy!=null) { copy.Visible=has && session.ShareText!=null;copy.Text=Texts.T(session.ShareIsInvite?"lobby.copyInvite":"lobby.copyPassword"); }
             var reopen=Find("reopen");
