@@ -1,5 +1,5 @@
 // Starts `wrangler dev --env test` on a free local port for integration tests and stops the whole process tree afterwards.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,16 +13,25 @@ export async function startDev() {
   const state = mkdtempSync(join(tmpdir(), 'coop-relay-test-'));
   const dev = spawn('npx', ['wrangler', 'dev', '--env', 'test', '--ip', '127.0.0.1', '--port', String(port), '--persist-to', state],
     { cwd: new URL('..', import.meta.url), shell: process.platform === 'win32', env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } });
-  let output = '';
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('wrangler dev did not start:\n' + output)), 90000);
-    const watch = data => { output += data; if (/Ready on/.test(output)) { clearTimeout(timer); resolve(); } };
-    dev.stdout.on('data', watch); dev.stderr.on('data', watch);
-    dev.on('exit', code => { try { rmSync(state, { recursive: true, force: true }); } catch {} clearTimeout(timer); reject(new Error(`wrangler dev exited (${code}):\n` + output)); });
-  });
-  return {
-    base: `ws://127.0.0.1:${port}`,
-    // npx under a shell on Windows leaves workerd running unless the whole tree is stopped.
-    stop() { if (process.platform === 'win32') spawn('taskkill', ['/pid', String(dev.pid), '/T', '/F']); else dev.kill(); }
+  let output = '', exited = false;
+  const exit = new Promise(resolve => dev.on('exit', () => { exited = true; resolve(); }));
+  const cleanup = () => { try { rmSync(state, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (e) { console.error('temp cleanup failed:', e.message); } };
+  // npx under a shell on Windows leaves workerd running unless the whole tree is stopped.
+  const stop = async () => {
+    if (!exited) {
+      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(dev.pid), '/T', '/F'], { stdio: 'ignore' }); else dev.kill();
+      await Promise.race([exit, new Promise(r => setTimeout(r, 10000))]);
+      await new Promise(r => setTimeout(r, 300)); // let workerd release its files
+    }
+    cleanup();
   };
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('wrangler dev did not start: ' + output)), 90000);
+      const watch = data => { output += data; if (/Ready on/.test(output)) { clearTimeout(timer); resolve(); } };
+      dev.stdout.on('data', watch); dev.stderr.on('data', watch);
+      dev.on('exit', code => { clearTimeout(timer); reject(new Error(`wrangler dev exited (${code}): ` + output)); });
+    });
+  } catch (e) { await stop(); throw e; }
+  return { base: `ws://127.0.0.1:${port}`, stop };
 }

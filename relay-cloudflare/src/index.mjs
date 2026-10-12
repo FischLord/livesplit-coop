@@ -1,11 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
 import { PROTOCOL, validSnapshot, validTick } from '../../relay/src/protocol.mjs';
-import { normalizeName, visible } from './directory.mjs';
+import { normalizeName, visible, addressBucket, cleanLabel } from './directory.mjs';
 
 // Same wire protocol as relay/src/server.mjs, rebuilt on the Durable Object hibernation API:
 // one object per room, no timers (alarms only), state that must survive hibernation lives in
 // storage (keys, last complete snapshot) or in per-socket attachments (role, sequence, last tick).
 const DAY = 86400000, IDLE_MS = 7 * DAY, AUTH_MS = 5000, MAX_PENDING = 16, MAX_ROOM = 12, FAIL_MAX = 10, FAIL_WINDOW = 60000;
+const REPORT_GAP = 10000, REPORT_REFRESH = 3600000, LIST_CACHE = 5000, BODY_MAX = 1024;
 const UPDATE = 'Unsupported protocol version; update LiveSplit Coop';
 const secure = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (status, body, headers = {}) => new Response(body === undefined ? null : JSON.stringify(body),
@@ -48,8 +49,9 @@ async function createRoom(request, env) {
 // so the relay only ever sees (and stores the hash of) that key, never the password.
 async function createLobby(request, env) {
   if (env.ROOM_CREATION !== '1') return json(404);
+  if (Number(request.headers.get('Content-Length')) > BODY_MAX) return json(400);
   let body;
-  try { const text = await request.text(); if (text.length > 1024) return json(400); body = JSON.parse(text); } catch { return json(400); }
+  try { const text = await readCapped(request, BODY_MAX); if (text === null || text.length > BODY_MAX) return json(400); body = JSON.parse(text); } catch { return json(400); }
   const name = normalizeName(body?.name);
   if (!name || typeof body.viewerKey !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(body.viewerKey) ||
       typeof body.public !== 'boolean' || typeof body.locked !== 'boolean') return json(400);
@@ -61,6 +63,23 @@ async function createLobby(request, env) {
   const hostKey = token(32);
   if (!await room.init(hex(await digest(hostKey)), hex(await digest(body.viewerKey)), { name, public: body.public, locked: body.locked })) return json(409);
   return json(201, { roomId, hostKey, idleExpiryDays: IDLE_MS / DAY });
+}
+
+// Reads at most `max` bytes of the body; null when it is larger (chunked bodies carry no Content-Length).
+async function readCapped(request, max) {
+  if (!request.body) return '';
+  const reader = request.body.getReader(), chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) { await reader.cancel(); return null; }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size); let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.length; }
+  return new TextDecoder().decode(all);
 }
 
 // Bare /coop only exists so clients older than v3 learn that they must update.
@@ -95,11 +114,13 @@ export class Directory extends DurableObject {
   async remove(name) { await this.ctx.storage.delete('l:' + name); }
   async list() {
     const now = Date.now();
+    if (this.cache && now - this.cache.at < LIST_CACHE) return this.cache.value;
     const all = [...(await this.ctx.storage.list({ prefix: 'l:' })).values()];
     // Rooms remove their entry when they expire; this only sweeps leftovers.
     const stale = all.filter(e => now - e.updated >= IDLE_MS + DAY).map(e => 'l:' + e.name).slice(0, 128);
     if (stale.length) await this.ctx.storage.delete(stale);
-    return visible(all, now);
+    this.cache = { at: now, value: visible(all, now) };
+    return this.cache.value;
   }
 }
 
@@ -147,16 +168,34 @@ export class Room extends DurableObject {
     if (host) host.ws.send(JSON.stringify({ type: 'peers', viewers: this.viewers().filter(s => s.ws !== leaving).length }));
   }
   directory() { return this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName('global')); }
-  // Publishes this lobby's public entry. Private lobbies and plain rooms are never listed.
+  // Requests a directory update. Never throws and never blocks relaying: at most one write per
+  // REPORT_GAP, a request inside that window is parked in storage and performed by alarm().
   async report(leaving = null) {
-    const lobby = this.meta?.lobby;
-    if (!lobby?.public) return;
-    const s = this.snapshot;
-    await this.directory().put(lobby.name, {
-      name: lobby.name, locked: lobby.locked, hostOnline: !!this.host(), viewers: this.viewers().filter(s => s.ws !== leaving).length,
-      game: s?.game ?? null, category: s?.category ?? null,
-      label: typeof s?.profileLabel === 'string' ? s.profileLabel.slice(0, 60) : null, updated: Date.now()
-    });
+    try {
+      if (!this.meta?.lobby?.public) return;
+      const wait = (this.lastReport ?? 0) + REPORT_GAP - Date.now();
+      if (wait > 0) {
+        await this.ctx.storage.put('reportDue', true);
+        await this.wakeAt(this.lastReport + REPORT_GAP);
+      } else await this.publish(leaving);
+    } catch (e) { console.error('directory report failed', e?.name); }
+  }
+  // Writes this lobby's public entry. Private lobbies and plain rooms are never listed. Returns success.
+  async publish(leaving = null) {
+    try {
+      const lobby = this.meta?.lobby;
+      if (!lobby?.public) return true;
+      const s = this.snapshot, now = Date.now();
+      await this.directory().put(lobby.name, {
+        name: lobby.name, locked: lobby.locked, hostOnline: !!this.host(), viewers: this.viewers().filter(v => v.ws !== leaving).length,
+        game: s?.game ?? null, category: s?.category ?? null, label: cleanLabel(s?.profileLabel), updated: now
+      });
+      this.lastReport = now;
+      await this.ctx.storage.delete('reportDue');
+      // A host that stays online keeps its entry fresh.
+      if (this.host()) await this.wakeAt(now + REPORT_REFRESH);
+      return true;
+    } catch (e) { console.error('directory publish failed', e?.name); return false; }
   }
 
   async fetch(request) {
@@ -203,24 +242,27 @@ export class Room extends DurableObject {
     // Only structural changes reach storage, so a running timer costs no writes.
     await this.ctx.storage.put('snapshot', m);
     const reported = [m.game, m.category, m.profileLabel].join('|');
-    if (reported !== this.reported) { this.reported = reported; await this.report(); }
     this.broadcast({ type: 'state', live: true, ageMs: 0, snapshot: m });
+    if (reported !== this.reported) { this.reported = reported; await this.report(); }
   }
 
   async hello(ws, a, m) {
     if (m.type === 'hello' && m.v !== PROTOCOL) { ws.close(1008, UPDATE); return; }
     if (m.type !== 'hello' || !['host', 'viewer'].includes(m.role)) { ws.close(1008, 'Authentication failed'); return; }
     if (!this.meta) { ws.close(4004, 'Room expired or unknown'); return; }
-    // Lobby passwords can be short, so failed logins are limited per address and room.
+    // Lobby passwords can be short, so failed logins are limited per address bucket and room.
     // A locked-out address is refused before the key check, so a correct guess stays invisible.
-    const failKey = 'fail:' + (a.ip || 'unknown'), now = Date.now();
+    const failKey = 'fail:' + addressBucket(a.ip), now = Date.now();
+    const keyOk = typeof m.key === 'string' && m.key.length >= 32 && m.key.length <= 256;
+    const given = keyOk ? await digest(m.key) : null; // no non-storage await between the counter's get and put
     const fail = await this.ctx.storage.get(failKey);
     const recent = fail && now - fail.since < FAIL_WINDOW ? fail : null;
     if (recent && recent.count >= FAIL_MAX) { ws.close(1008, 'Too many attempts'); return; }
     const expected = m.role === 'host' ? this.meta.hostHash : this.meta.viewerHash;
-    if (typeof m.key !== 'string' || m.key.length < 32 || m.key.length > 256 ||
-        !crypto.subtle.timingSafeEqual(await digest(m.key), Uint8Array.from(expected.match(/../g), h => parseInt(h, 16)))) {
-      await this.ctx.storage.put(failKey, { since: recent ? recent.since : now, count: (recent ? recent.count : 0) + 1 });
+    if (!keyOk || !crypto.subtle.timingSafeEqual(given, Uint8Array.from(expected.match(/../g), h => parseInt(h, 16)))) {
+      const since = recent ? recent.since : now;
+      await this.ctx.storage.put(failKey, { since, count: (recent ? recent.count : 0) + 1 });
+      await this.wakeAt(since + FAIL_WINDOW);
       ws.close(1008, 'Authentication failed'); return;
     }
     // The host always has a reserved slot; viewers cannot lock the publisher out.
@@ -236,7 +278,6 @@ export class Room extends DurableObject {
     }
     ws.send(JSON.stringify({ type: 'ready', v: PROTOCOL, role: m.role }));
     this.notifyHost();
-    await this.report();
     if (m.role === 'viewer') {
       const host = this.host();
       ws.send(JSON.stringify({ type: 'host', online: !!host }));
@@ -245,6 +286,7 @@ export class Room extends DurableObject {
         ws.send(JSON.stringify({ type: 'state', live: !!host && host.a.fresh && age < 1500, ageMs: Math.max(0, age), snapshot: this.snapshot }));
       }
     }
+    await this.report();
   }
 
   async webSocketClose(ws) { await this.left(ws); }
@@ -279,10 +321,33 @@ export class Room extends DurableObject {
     if (this.meta && !this.host() && !this.viewers().length) {
       const active = await this.ctx.storage.get('active') ?? 0;
       if (now - active >= IDLE_MS) {
-        if (this.meta.lobby?.public) await this.directory().remove(this.meta.lobby.name);
+        // Make the room unusable first, then unlist it: a failing directory must not leave a live room behind.
+        const lobby = this.meta.lobby;
         await this.ctx.storage.deleteAll();
-        this.meta = null; this.snapshot = null;
+        this.meta = null; this.snapshot = null; this.lastReport = undefined;
+        for (const { ws } of this.sockets()) if (ws.readyState === WebSocket.OPEN) ws.close(4004, 'Room expired or unknown');
+        if (lobby?.public) { try { await this.directory().remove(lobby.name); } catch (e) { console.error('directory remove failed', e?.name); } }
       } else next = Math.min(next, active + IDLE_MS);
+    }
+    if (this.meta) {
+      // Expired lockout counters.
+      const fails = await this.ctx.storage.list({ prefix: 'fail:', limit: 128 });
+      const expired = [];
+      for (const [k, v] of fails) {
+        if (now - v.since >= FAIL_WINDOW) expired.push(k); else next = Math.min(next, v.since + FAIL_WINDOW);
+      }
+      if (expired.length) await this.ctx.storage.delete(expired);
+      if (fails.size >= 128) next = Math.min(next, now + 1000);
+      // Parked directory update, and the hourly refresh while the host is online.
+      if (this.meta.lobby?.public) {
+        const due = await this.ctx.storage.get('reportDue');
+        const hosted = !!this.host();
+        if (due || (hosted && now - (this.lastReport ?? 0) >= REPORT_REFRESH)) {
+          if (due && this.lastReport && now - this.lastReport < REPORT_GAP) next = Math.min(next, this.lastReport + REPORT_GAP);
+          else if (!await this.publish()) next = Math.min(next, now + REPORT_GAP);
+        }
+        if (hosted && this.lastReport) next = Math.min(next, this.lastReport + REPORT_REFRESH);
+      }
     }
     if (next < Infinity) await this.ctx.storage.setAlarm(next);
   }

@@ -2,6 +2,6 @@
 import { startDev } from './dev.mjs';
 const dev = await startDev();
 console.log(`${dev.base}/coop`);
-const stop = () => { dev.stop(); process.exit(0); };
+const stop = () => dev.stop().finally(() => process.exit(0));
 process.on('SIGTERM', stop); process.on('SIGINT', stop);
 setTimeout(stop, 600000);

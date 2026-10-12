@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeName, visible, LIST_MAX } from '../src/directory.mjs';
+import { normalizeName, visible, LIST_MAX, addressBucket, cleanLabel } from '../src/directory.mjs';
 
 test('normalizeName trims, lowercases and enforces 3-32 of [a-z0-9_-]', () => {
   assert.equal(normalizeName('  RvGang '), 'rvgang');
@@ -26,4 +26,26 @@ test('visible returns at most LIST_MAX entries', () => {
   const now = 1000000;
   const many = Array.from({ length: LIST_MAX + 5 }, (_, i) => ({ name: 'n' + i, locked: false, hostOnline: false, viewers: 0, game: null, category: null, label: null, updated: now - i }));
   assert.equal(visible(many, now).length, LIST_MAX);
+});
+
+test('addressBucket keeps IPv4 and buckets IPv6 by /64', () => {
+  assert.equal(addressBucket('203.0.113.7'), '203.0.113.7');
+  assert.equal(addressBucket('2001:0db8:0000:0000:abcd:0000:0000:0001'), '2001:db8:0:0');
+  assert.equal(addressBucket('2001:db8::1'), '2001:db8:0:0');
+  assert.equal(addressBucket('2001:db8:0:0:abcd::1'), addressBucket('2001:db8::1'));
+  assert.notEqual(addressBucket('2001:db8:0:1::1'), addressBucket('2001:db8::1'));
+  assert.equal(addressBucket('::1'), '0:0:0:0');
+  assert.equal(addressBucket('unknown'), 'unknown');
+  assert.equal(addressBucket(undefined), 'unknown');
+  assert.equal(addressBucket('::ffff:1.2.3.4'), '1.2.3.4');
+});
+
+test('cleanLabel accepts plain text up to 60 chars and rejects everything else', () => {
+  assert.equal(cleanLabel('Duo / Fullgame'), 'Duo / Fullgame');
+  assert.equal(cleanLabel('a'.repeat(60)), 'a'.repeat(60));
+  assert.equal(cleanLabel('a'.repeat(61)), null);
+  assert.equal(cleanLabel('bad\nlabel'), null);
+  assert.equal(cleanLabel('bad\u0000'), null);
+  assert.equal(cleanLabel(5), null);
+  assert.equal(cleanLabel(undefined), null);
 });

@@ -10,7 +10,7 @@ let dev;
 before(async () => { dev = await startDev(); }, { timeout: 120000 });
 after(() => dev?.stop());
 const http = () => dev.base.replace('ws:', 'http:');
-// State persists between runs (.wrangler/test-state), so every test uses fresh names.
+// Each run uses its own temporary state directory, but tests in this file share one worker, so every test uses fresh names.
 const unique = prefix => (prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)).slice(0, 32);
 const key = c => c.repeat(43);
 const create = body => fetch(http() + '/lobbies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -57,9 +57,10 @@ test('lobbies: invalid bodies are rejected with 400', async () => {
 
 const lobbies = async () => { const r = await fetch(http() + '/lobbies'); assert.equal(r.status, 200); return (await r.json()).lobbies; };
 // Directory updates are reported asynchronously by the room; poll briefly.
-async function eventually(check) {
+// The room throttles directory writes to one per 10 s and the list is cached for 5 s, hence the generous default.
+async function eventually(check, tries = 80) {
   let last;
-  for (let i = 0; i < 40; i++) { try { return await check(); } catch (e) { last = e; await new Promise(r => setTimeout(r, 100)); } }
+  for (let i = 0; i < tries; i++) { try { return await check(); } catch (e) { last = e; await new Promise(r => setTimeout(r, 250)); } }
   throw last;
 }
 
@@ -113,5 +114,17 @@ test('lobbies: the host learns how many viewers follow it', async () => {
   assert.equal((await host.next('peers')).viewers, 1);
   viewer.close();
   assert.equal((await host.next('peers')).viewers, 0);
+  host.close();
+});
+
+test('lobbies: rapid profile changes are throttled but the latest label is listed eventually', async () => {
+  const name = unique('rl');
+  const made = await (await create({ name, viewerKey: key('v'), public: true, locked: false })).json();
+  const host = await client(made.roomId, 'host', made.hostKey); await host.next('ready');
+  for (const [i, label] of ['one', 'two', 'three', 'latest'].entries()) {
+    host.send(JSON.stringify({ ...snapshot(i + 1), profileLabel: label }));
+    await new Promise(r => setTimeout(r, 100));
+  }
+  await eventually(async () => assert.equal((await lobbies()).find(l => l.name === name)?.label, 'latest'), 100);
   host.close();
 });
