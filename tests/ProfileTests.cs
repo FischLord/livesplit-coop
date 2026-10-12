@@ -48,6 +48,7 @@ public static class ProfileTests {
     public static void Run(string work) {
         Texts.German=false;
         PackTests(work);
+        PreparerTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void PackTests(string work) {
@@ -79,5 +80,44 @@ public static class ProfileTests {
             string path=Path.Combine(work,"bad.json");File.WriteAllText(path,bad);
             Throws<InvalidDataException>(()=>ProfilePack.Load(path),"invalid pack is rejected");
         }
+    }
+    static void PreparerTests(string work) {
+        string root=MakePack(work,"prep");
+        var pack=ProfilePack.Load(Path.Combine(root,"coop-profiles.json"));
+        var g=pack.ByKey("a|g");
+        ProfilePreparer.Prepare(pack,g,"host");
+        var layout=new XmlDocument();layout.Load(pack.FullPath(g.layout));
+        Check(layout.SelectSingleNode("//Component[Path='LiveSplit.Coop.dll']/Settings/Role").InnerText=="host","layout coop role is set");
+        var asl=layout.SelectSingleNode("//Component[Path='LiveSplit.ScriptableAutoSplit.dll']/Settings");
+        Check(asl["ScriptPath"].InnerText==pack.FullPath("Autosplitter/test.asl"),"autosplitter path points into the pack");
+        Check(asl["Start"].InnerText=="True" && asl["Split"].InnerText=="True" && asl["Reset"].InnerText=="True","start and split are enabled, reset untouched");
+        Check(asl.SelectSingleNode("CustomSettings/Setting[@id='finalSplit']").InnerText=="True","pack autosplitter settings are applied");
+        string splitsPath=pack.FullPath(g.splits);
+        var run=new XmlDocument();run.Load(splitsPath);
+        Check(run.SelectSingleNode("/Run/LayoutPath").InnerText==pack.FullPath(g.layout),"splits point to the profile layout");
+        var glitch=run.SelectSingleNode("/Run/Metadata/Variables/Variable[@name='Glitch Type']");
+        Check(glitch!=null && glitch.FirstChild is XmlCDataSection && glitch.InnerText=="Glitched ","values with outer spaces are written as CDATA");
+        Check(run.SelectSingleNode("/Run/Metadata/Variables/Variable[@name='Number of Players']").InnerText=="Duo","plain variables are written");
+        Check(run.SelectSingleNode("/Run/AttemptCount").InnerText=="3" && run.SelectSingleNode("//SplitTime[@name='Personal Best']/RealTime").InnerText=="00:01:00.5000000","times and attempts are untouched");
+        // LiveSplit's own parser keeps the trailing space, which speedrun.com's Glitched label needs.
+        using(var stream=File.OpenRead(splitsPath)) {
+            var parsed=new LiveSplit.Model.RunFactories.StandardFormatsRunFactory(stream,splitsPath).Create(new StandardComparisonGeneratorsFactory());
+            Check(parsed.Metadata.VariableValueNames["Glitch Type"]=="Glitched ","LiveSplit reads the Glitched label with its trailing space");
+            Check(parsed.AttemptCount==3,"LiveSplit reads the prepared splits");
+        }
+        ProfilePreparer.Prepare(pack,g,"host");
+        var again=new XmlDocument();again.Load(splitsPath);
+        Check(again.SelectNodes("/Run/Metadata/Variables/Variable[@name='Glitch Type']").Count==1,"preparing twice does not duplicate variables");
+        Check(!File.Exists(splitsPath+".tmp") && !File.Exists(pack.FullPath(g.layout)+".tmp"),"no temporary files remain");
+        File.Delete(pack.FullPath("Autosplitter/test.asl"));
+        Throws<FileNotFoundException>(()=>ProfilePreparer.Prepare(pack,g,"host"),"a missing autosplitter is reported");
+        // settings.cfg for the first start outside LiveSplit.
+        string cfg=Path.Combine(root,"Anwendung/Host/settings.cfg");
+        File.WriteAllText(cfg,"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Settings><RecentSplits><SplitsFile gameName=\"x\" categoryName=\"y\">"+splitsPath+"</SplitsFile></RecentSplits><ActiveAutoSplitters><AutoSplitterGame>RV</AutoSplitterGame></ActiveAutoSplitters></Settings>");
+        ProfilePreparer.RememberInSettings(cfg,splitsPath,"Test Game","Map A Any%");
+        var settings=new XmlDocument();settings.Load(cfg);
+        var entries=settings.SelectNodes("/Settings/RecentSplits/SplitsFile");
+        Check(entries.Count==1 && entries[0].InnerText==splitsPath && entries[0].Attributes["categoryName"].Value=="Map A Any%" && entries[0].Attributes["lastTimingMethod"].Value=="RealTime","the profile becomes the most recent splits once");
+        Check(!settings.SelectSingleNode("/Settings/ActiveAutoSplitters").HasChildNodes,"registered autosplitters are deactivated (the layout owns the autosplitter)");
     }
 }
