@@ -14,7 +14,6 @@ namespace LiveSplit.Coop {
         readonly TextBox key=new TextBox { UseSystemPasswordChar=true,Width=290 };
         readonly ComboBox role=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=290 };
         readonly Label status=new Label { AutoSize=true,MaximumSize=new Size(400,0),Text="Disconnected" };
-        readonly Button create=new Button { Text="Create room (host)",AutoSize=true };
         readonly TextBox invite=new TextBox { ReadOnly=true,Width=220 };
         readonly Panel inviteRow=new FlowLayoutPanel { AutoSize=true,Visible=false,Margin=new Padding(0) };
         // The viewer key of a room this host created, kept so the invite can be copied again later.
@@ -41,8 +40,8 @@ namespace LiveSplit.Coop {
             step1Grid.Controls.Add(new Label { Text="Server URL",AutoSize=true },0,0);step1Grid.Controls.Add(address,1,0);
             step1Grid.Controls.Add(new Label { Text="Room",AutoSize=true },0,1);step1Grid.Controls.Add(room,1,1);
             var join=new Button { Text="Join with invite",AutoSize=true };
-            create.Click+=(s,e)=>CreateRoom();join.Click+=(s,e)=>JoinFromClipboard();
-            var roomButtons=new FlowLayoutPanel { AutoSize=true,Margin=new Padding(0) };roomButtons.Controls.Add(create);roomButtons.Controls.Add(join);
+            join.Click+=(s,e)=>JoinFromClipboard();
+            var roomButtons=new FlowLayoutPanel { AutoSize=true,Margin=new Padding(0) };roomButtons.Controls.Add(join);
             step1Grid.Controls.Add(roomButtons,1,2);
             var step1Note=new Label { AutoSize=true,MaximumSize=new Size(390,0),
                 Text="Host: Create room makes a private room on this server and fills in everything. Teammates: copy the host's invite code (lscoop:…), then click Join with invite." };
@@ -106,10 +105,6 @@ namespace LiveSplit.Coop {
                 catch(ArgumentException){return false;}catch(UriFormatException){return false;}
             }
         }
-        public void ApplyHostGrant(RoomGrant grant) {
-            address.Text=grant.server;room.Text=grant.room;role.SelectedIndex=0;
-            key.Text=grant.hostKey;inviteKey=grant.viewerKey;ShowInvite();
-        }
         void CopyInvite() { string message;CopyInviteToClipboard(out message); }
         public bool CopyInviteToClipboard(out string message) {
             string text=invite.Text;
@@ -132,20 +127,6 @@ namespace LiveSplit.Coop {
             }
             if(!text.TrimStart().StartsWith("lscoop:",StringComparison.Ordinal)) { status.Text="Copy the host's invite code first (it starts with lscoop:), then click Join with invite.";return; }
             UseInvite(text);
-        }
-        void CreateRoom() {
-            string server=Address;
-            create.Enabled=false;status.Text="Creating a room…";
-            Task.Run(()=>Invite.Create(server)).ContinueWith(t=>{
-                if(IsDisposed) return;
-                BeginInvoke((Action)(()=>{
-                    create.Enabled=true;
-                    if(t.IsFaulted) { var e=t.Exception.GetBaseException();status.Text=e is ArgumentException?"Enter a valid server URL (wss://…/coop) first.":e.Message;return; }
-                    var grant=t.Result;
-                    ApplyHostGrant(grant);
-                    status.Text="Room created. Copy the invite for your teammates, save the layout, then click Connect.";
-                }));
-            });
         }
         // Keys are bound to this Windows user and PC; a layout copied elsewhere needs them entered again.
         static string Protect(string value) { return value.Length==0?"":Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value),null,DataProtectionScope.CurrentUser)); }

@@ -16,7 +16,30 @@ public static class LobbyTests {
         Texts.German=false;
         KeyTests();
         TextTests();
+        ClientTests(relay);
         Console.WriteLine(passed+" checks passed");
+    }
+    static string Unique(string prefix){return (prefix+DateTime.UtcNow.Ticks.ToString("x")+Guid.NewGuid().ToString("N").Substring(0,4)).Substring(0,Math.Min(32,prefix.Length+18));}
+    static void ClientTests(string relay) {
+        Check(LobbyClient.Endpoint("wss://relay.example/coop","/lobbies").ToString()=="https://relay.example/lobbies","wss maps to https");
+        Check(LobbyClient.Endpoint("ws://127.0.0.1:8788/coop","/lobbies").ToString()=="http://127.0.0.1:8788/lobbies","loopback ws keeps its port");
+        string name=Unique("ct");
+        var grant=LobbyClient.Create(relay,name.ToUpperInvariant(),"banane",true);
+        Check(grant.name==name && grant.roomId=="lobby_"+name && grant.server==relay,"create returns the normalized lobby");
+        Check(grant.hostKey!=null && grant.hostKey.Length==43 && grant.viewerKey==LobbyKey.DeriveViewerKey(name,"banane"),"grant carries host key and derived viewer key");
+        Check(grant.isPublic && grant.locked,"public lobby with password is locked");
+        try { LobbyClient.Create(relay,name,"x",false);Check(false,"taken name throws"); }
+        catch(LobbyException e) { Check(e.Message==Texts.T("lobby.taken"),"taken name gives the taken message"); }
+        try { LobbyClient.Create(relay,"a b","",false);Check(false,"invalid name throws"); }
+        catch(LobbyException e) { Check(e.Message==Texts.T("lobby.invalidName"),"invalid name is reported before any request"); }
+        var open=LobbyClient.Create(relay,Unique("op"),"",false);
+        Check(!open.locked && !open.isPublic,"lobby without password is not locked");
+        LobbyInfo found=null;
+        for(int i=0;i<40 && found==null;i++){found=LobbyClient.List(relay).FirstOrDefault(l=>l.name==name);if(found==null)Thread.Sleep(100);}
+        Check(found!=null && found.locked && !found.hostOnline && found.viewers==0,"public lobby appears in the list");
+        Check(!LobbyClient.List(relay).Any(l=>l.name==open.name),"private lobby is not listed");
+        try { LobbyClient.List("wss://127.0.0.1:1/coop");Check(false,"unreachable server throws"); }
+        catch(LobbyException e) { Check(e.Message.StartsWith(Texts.T("lobby.unreachable","").TrimEnd()),"unreachable server is explained"); }
     }
     static void TextTests() {
         Texts.German=true;

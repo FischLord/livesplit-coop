@@ -46,7 +46,6 @@ namespace LiveSplit.Coop {
         bool dirty=true,hasSnapshot;
         readonly RainbowGraph rainbowGraph=new RainbowGraph();
         long lastRainbowUpdate=-100;
-        string quickNotice;long quickNoticeUntil;
         Color colour=Color.Gray;
         public CoopComponent(LiveSplitState state) {
             this.state=state;settings.ConnectRequested+=Connect;settings.DisconnectRequested+=Disconnect;
@@ -99,7 +98,6 @@ namespace LiveSplit.Coop {
             catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus(e.Message,Color.IndianRed); }
         }
         public void Disconnect() {
-            quickNotice=null;
             if(connection!=null) { CoopDiagnostics.Write("disconnect_requested",new { component=diagnosticId,role=role });connection.Dispose();connection=null; }
             if(mirror!=null) { mirror.Dispose();mirror=null; }
             hasSnapshot=false;SetStatus("Disconnected",Color.Gray);
@@ -160,10 +158,6 @@ namespace LiveSplit.Coop {
                 } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus("Stopped: autosplitter on",e.Message,Color.IndianRed); }
                 catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus("Stopped: "+e.Message,Color.IndianRed); }
             }
-            if(quickNotice!=null) {
-                if(watch.ElapsedMilliseconds<quickNoticeUntil) SetStatus(quickNotice,Color.MediumAquamarine);
-                else { quickNotice=null;if(connection==null)SetStatus("Disconnected",Color.Gray); }
-            }
             if(invalidator!=null) invalidator.Invalidate(0,0,width,height);
         }
         public string ComponentName { get { return "Coop Relay"; } }
@@ -176,7 +170,6 @@ namespace LiveSplit.Coop {
         public float PaddingLeft { get { return 0; } }
         public float PaddingRight { get { return 0; } }
         public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action>{
-            {"Coop: Host...",HostRoom},{"Coop: Join...",JoinRoom},{"Coop: Copy invite",CopyRoomInvite},
             {"Coop: Reconnect",Connect},{"Coop: Disconnect",Disconnect},{"Coop: Export diagnostics...",ExportDiagnostics}}; } }
         void ExportDiagnostics() {
             using(var dialog=new SaveFileDialog { Title="Export Coop diagnostics",Filter="Diagnostic log (*.jsonl)|*.jsonl",DefaultExt="jsonl",AddExtension=true,
@@ -187,37 +180,12 @@ namespace LiveSplit.Coop {
                 } catch(Exception e) { CoopDiagnostics.Error("export",e);MessageBox.Show(state.Form,"Could not export diagnostics. Choose a writable destination and check free disk space.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
             }
         }
-        void HostRoom() {
-            using(var dialog=new HostDialog(settings.Address,settings.HasHostRoom,settings.Room)) {
-                if(dialog.ShowDialog(state.Form)!=DialogResult.OK)return;
-                if(dialog.Grant!=null) { settings.ApplyHostGrant(dialog.Grant);state.Layout.HasChanged=true; }
-                Connect();
-                if(dialog.Grant!=null) {
-                    string feedback;settings.CopyInviteToClipboard(out feedback);
-                    using(var invitation=new InvitationDialog(settings,feedback))invitation.ShowDialog(state.Form);
-                }
-            }
-        }
         string JoinProblem() {
             var problem=AutoSplitterProblem(state);
             if(problem!=null)return problem;
             if((connection==null || role!="viewer") && state.CurrentPhase!=TimerPhase.NotRunning)
                 return "Stop/reset the local timer before joining as a viewer.";
             return null;
-        }
-        void JoinRoom() {
-            using(var dialog=new JoinDialog(JoinProblem)) {
-                if(dialog.ShowDialog(state.Form)!=DialogResult.OK)return;
-                if(settings.TryApplyInvite(dialog.InviteText)) { state.Layout.HasChanged=true;Connect(); }
-            }
-        }
-        void CopyRoomInvite() {
-            if(string.IsNullOrEmpty(settings.InviteCode)) {
-                MessageBox.Show(state.Form,"No invitation is available. Choose Coop: Host... and create a room first. Manually configured rooms need an invitation from their operator.","Coop",MessageBoxButtons.OK,MessageBoxIcon.Information);return;
-            }
-            string feedback;
-            if(settings.CopyInviteToClipboard(out feedback)) { quickNotice="Invite copied";quickNoticeUntil=watch.ElapsedMilliseconds+3500;SetStatus(quickNotice,Color.MediumAquamarine); }
-            else using(var dialog=new InvitationDialog(settings,feedback))dialog.ShowDialog(state.Form);
         }
         void Draw(Graphics g,float width,float height) {
             string players=settings.Role=="viewer" && !hasSnapshot?"Players: ?":RunProfile.CategoryLabel(state.Run);
