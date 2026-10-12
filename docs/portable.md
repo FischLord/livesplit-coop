@@ -16,7 +16,7 @@
 
 For viewers use `role: viewer` and the view key. Remove all autosplitter components from viewer layouts, disable registered autosplitters and local timer hotkeys. A placeholder game name that does not match a registered autosplitter is useful. The viewer adopts the host's run in memory after connecting.
 
-The launcher prompts for a profile, resolves ASL filenames inside `Components`, updates the selected run's layout path, and encrypts the access key with DPAPI for the current Windows user. Then it launches LiveSplit from the package directory. The user clicks **Coop: Connect**. Connections are not automatic. On a new PC or after moving the folder, launch through the CMD again; do not copy DPAPI ciphertext alone.
+The launcher prompts for a profile, resolves ASL filenames inside `Components`, updates the selected run's layout path, and encrypts the access key with DPAPI for the current Windows user. Then it launches LiveSplit from the package directory. The user clicks **Coop: Reconnect**. Connections are not automatic. On a new PC or after moving the folder, launch through the CMD again; do not copy DPAPI ciphertext alone.
 
 The raw role key intentionally remains in the private JSON so a recipient can initialize the package. Share these archives privately, never as public releases. Public releases must omit that file and instruct recipients to use their own server/key. Keep generated private packages under a gitignored directory. The host saves authoritative results with **Save Splits**; viewer packages do not automatically archive host history.
 

@@ -49,3 +49,17 @@ The first UI test run's restore-path assertion incorrectly required an absolute 
 - Portable host/viewer copies were moved to a path containing spaces. All four host profiles and the viewer profile prepared successfully; DPAPI keys, resolved paths, separate roles, 23 Bay segments and preserved Valley PB/history checked. Both bundled ASLs compiled with the installed parser. Original split/layout/settings hashes stayed unchanged.
 
 Still required before calling this a release: real game/autosplitter smoke test and full Duo/Trio game run, plus observation of the next real certificate renewal. Event-driven third-party components and history-dependent comparisons need additional compatibility coverage. The RV Bay final autosplit in a completed game remains unverified; the older Valley ASL was packaged unchanged and was not revalidated against the updated game.
+
+## Clipboard hotfix, 2026-09-29
+
+The invitation Copy button no longer lets an ExternalException (0x800401D0) escape when another application holds the Windows clipboard. Writes retry three times at 75 ms intervals, then select the existing invite and display a manual-copy hint. Join with invite catches failed clipboard reads and retains existing room credentials. Empty invites ask for room creation rather than writing to the clipboard.
+
+`scripts/test-clipboard.ps1 -LiveSplitPath <installation>` passes 9 checks against the built component. It invokes the real Copy/Join button handlers while a separate hidden process holds the real Windows clipboard lock. The same test reproduced the reported ExternalException against the previous DLL. It also checks bounded retry duration, selected invitation text, unchanged room/key and empty-invite handling. The test does not replace clipboard contents. Requires an interactive Windows desktop/clipboard session.
+## Context menu quick actions, 2026-09-29
+
+The local component adds Host, Join, Copy invite and Reconnect actions alongside Disconnect. `scripts/test-menu.ps1` passes **28 checks**, including automation of the real context-menu handlers against an isolated local relay: new room creation, immediate host/viewer connections, exact final-time mirroring, reuse of saved room credentials, reconnect, restoration on disconnect, cancellation, failure recovery and the clipboard-busy fallback. Dialog screenshots were rendered from actual WinForms controls and reviewed. The test preserves the user's clipboard by holding it in a separate hidden process while exercising copy actions. That helper is built by the test runner itself.
+
+The **9 clipboard regression checks** and **57 existing native checks** also pass with the menu build. The UI-thread flow keeps asynchronous room creation out of the timer loop and ignores results after cancellation. Layout settings are marked changed rather than silently written to disk. No relay protocol changes or server deployment are required.
+## Local diagnostics - 2026-09-29
+
+21 diagnostics checks passed: rotation, concurrent producers, queue overflow, export, I/O failure/recovery, secret exclusion and real timer events. The instrumented build also passed 57 native and 28 menu checks. Protocol remains v3; no relay or teammate update required. Final changes also make gap counters atomic on 32-bit and log only fixed policy descriptions. See diagnostics.md. Live game verification of the new logging remains pending.

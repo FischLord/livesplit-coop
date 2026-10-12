@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -55,7 +56,7 @@ namespace LiveSplit.Coop {
             step2Grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,100));step2Grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             step2Grid.Controls.Add(new Label { Text="Role",AutoSize=true },0,0);step2Grid.Controls.Add(role,1,0);
             step2Grid.Controls.Add(new Label { Text="Access key",AutoSize=true },0,1);step2Grid.Controls.Add(key,1,1);
-            var copy=new Button { Text="Copy",AutoSize=true };copy.Click+=(s,e)=>{ Clipboard.SetText(invite.Text);status.Text="Invite copied. Send it to your teammates privately."; };
+            var copy=new Button { Text="Copy",AutoSize=true };copy.Click+=(s,e)=>CopyInvite();
             inviteRow.Controls.Add(invite);inviteRow.Controls.Add(copy);
             step2Grid.Controls.Add(new Label { Text="Invite",AutoSize=true },0,2);step2Grid.Controls.Add(inviteRow,1,2);
             var step2Note=new Label { AutoSize=true,MaximumSize=new Size(390,0),
@@ -86,16 +87,48 @@ namespace LiveSplit.Coop {
             if(inviteKey.Length>0 && Role=="host") try { text=Invite.Format(Address,Room,inviteKey); } catch(ArgumentException) { }
             invite.Text=text ?? "";inviteRow.Visible=text!=null;
         }
-        void UseInvite(string text) {
+        void UseInvite(string text) { TryApplyInvite(text); }
+        public bool TryApplyInvite(string text) {
             string server,id,viewerKey;
-            if(!Invite.TryParse(text,out server,out id,out viewerKey)) { status.Text="That is not a valid invite code. Ask the host to copy it again.";return; }
+            if(!Invite.TryParse(text,out server,out id,out viewerKey)) { status.Text="That is not a valid invite code. Ask the host to copy it again.";return false; }
             address.Text=server;room.Text=id;role.SelectedIndex=1;key.Text=viewerKey;inviteKey="";ShowInvite();
             // Tell viewers about an active autosplitter now rather than only when Connect fails.
             string problem=ViewerProblem==null?null:ViewerProblem();
             status.Text=problem==null?"Invite applied. Save the layout, then click Connect.":"Invite applied. "+problem;
+            return true;
+        }
+        public string InviteCode { get { return invite.Text; } }
+        public bool HasHostRoom {
+            get {
+                if(Role!="host")return false;
+                try { using(var probe=new RelayConnection(Address,Room,Role,Key)){}return true; }
+                catch(ArgumentException){return false;}catch(UriFormatException){return false;}
+            }
+        }
+        public void ApplyHostGrant(RoomGrant grant) {
+            address.Text=grant.server;room.Text=grant.room;role.SelectedIndex=0;
+            key.Text=grant.hostKey;inviteKey=grant.viewerKey;ShowInvite();
+        }
+        void CopyInvite() { string message;CopyInviteToClipboard(out message); }
+        public bool CopyInviteToClipboard(out string message) {
+            string text=invite.Text;
+            if(string.IsNullOrWhiteSpace(text)) { message=status.Text="Create a room first to get an invite code.";return false; }
+            try {
+                var data=new DataObject();data.SetText(text,TextDataFormat.UnicodeText);
+                Clipboard.SetDataObject(data,true,3,75);
+                message=status.Text="Invite copied. Send it to your teammates privately.";return true;
+            } catch(ExternalException) {
+                invite.Focus();invite.SelectAll();
+                message=status.Text="Clipboard is busy. Try Copy again, or copy the selected invite with Ctrl+C once the clipboard is available.";return false;
+            }
         }
         void JoinFromClipboard() {
-            string text=Clipboard.ContainsText()?Clipboard.GetText():"";
+            string text;
+            try { text=Clipboard.GetText(); }
+            catch(ExternalException) {
+                status.Text="Clipboard is busy. Try Join with invite again, or paste the invite into the Room field once the clipboard is available.";
+                return;
+            }
             if(!text.TrimStart().StartsWith("lscoop:",StringComparison.Ordinal)) { status.Text="Copy the host's invite code first (it starts with lscoop:), then click Join with invite.";return; }
             UseInvite(text);
         }
@@ -108,7 +141,7 @@ namespace LiveSplit.Coop {
                     create.Enabled=true;
                     if(t.IsFaulted) { var e=t.Exception.GetBaseException();status.Text=e is ArgumentException?"Enter a valid server URL (wss://…/coop) first.":e.Message;return; }
                     var grant=t.Result;
-                    room.Text=grant.room;role.SelectedIndex=0;key.Text=grant.hostKey;inviteKey=grant.viewerKey;ShowInvite();
+                    ApplyHostGrant(grant);
                     status.Text="Room created. Copy the invite for your teammates, save the layout, then click Connect.";
                 }));
             });

@@ -10,7 +10,7 @@
 6. **Viewers:** use a separate layout without a Scriptable Auto Splitter and deactivate the registered autosplitter in Edit Splits. Disable local timer-control hotkeys. Reset any local attempt before joining. Choose **Viewer** and connect; wait for **Following host**. Viewers do not select Duo/Trio or match the host's split file. Their visible layout remains their own; the host supplies the run and timing data.
 7. Start the run on the host. Start, completed splits, pause, undo, reset and finish propagate. Ended times remain visible until the host resets or the viewer disconnects. The host uses **Save Splits** to preserve results; viewers do not automatically archive host history.
 
-Use **Coop: Connect / Coop: Disconnect** in the LiveSplit context menu after setup. Connections do not start automatically after launching LiveSplit. On network loss or a temporarily full room the component retries; invalid room credentials or an incompatible protocol require you to correct the settings and connect again. A second client using the host key takes over the host slot, stopping the previous host connection. Running digits can lag by network delay; completed split and final times copy the host's exact values.
+Use **Coop: Reconnect / Coop: Disconnect** in the LiveSplit context menu after setup. Connections do not start automatically after launching LiveSplit. On network loss or a temporarily full room the component retries; invalid room credentials or an incompatible protocol require you to correct the settings and connect again. A second client using the host key takes over the host slot, stopping the previous host connection. Running digits can lag by network delay; completed split and final times copy the host's exact values.
 
 Keys stored in layouts are encrypted for that Windows account and machine. On another PC, enter that PC's role key again. Do not publish initialized layouts or private launcher packages. No VPN or router port-forwarding is required on player PCs. The relay operator exposes only the chosen TLS endpoint.
 
@@ -24,3 +24,17 @@ Keys stored in layouts are encrypted for that Windows account and machine. On an
 6. Sobald beim Host **Host connected** und bei Viewern **Following host** erscheint, kann der Host starten. Bei Netzwerkausfall oder vorübergehend vollem Raum verbindet sich die Komponente erneut; bei falschem Zugang oder inkompatiblem Protokoll Angaben korrigieren und nochmals **Connect** drücken. Der Host speichert die Ergebnisse anschließend mit **Save Splits**.
 
 Die Beta enthält keine RV-Autosplitter, privaten PBs oder Zugangsschlüssel. Ein vollständiger echter Coop-Spielrun ist noch nicht verifiziert. Weitere Grenzen stehen in der README.
+
+## Quick actions in the timer context menu
+
+- **Coop: Host...** opens a small choice between reusing saved host credentials and creating a room. Both connect immediately. Creating a room automatically copies the viewer invitation and shows it in a compact confirmation dialog; clipboard contention offers manual copying instead of a crash.
+- **Coop: Join...** opens an invitation field, prefilled only when the clipboard contains a valid invite. Nothing connects until Join is confirmed. Invalid invitations, local running attempts and active autosplitters are refused without replacing credentials.
+- **Coop: Copy invite** copies the current host's viewer invitation and briefly confirms it in the timer. If the clipboard is busy, a small dialog exposes the selectable code. Manually configured rooms without a saved viewer key cannot reconstruct an invitation.
+- **Coop: Reconnect** connects using the stored room and role after a deliberate disconnect. **Coop: Disconnect** retains the saved room; viewers recover their original local run.
+
+Host/Join mark changed layout settings as unsaved. Use **Save Layout** to retain room credentials and the host's viewer invitation for later sessions. The advanced settings panel still supports a custom server and manual keys; it is no longer required for the normal flow.
+
+Deutsch: Im Rechtsklick-Menü **Coop: Host...** für gespeicherten/neuen Raum oder **Coop: Join...** für eine Einladung wählen. Beide verbinden direkt nach Bestätigung. Neue Einladungen werden automatisch kopiert; **Copy invite** kopiert sie erneut. **Save Layout** speichert den Raum. **Reconnect** und **Disconnect** bleiben separat verfügbar.
+### Local diagnostic build
+
+The local diagnostics build adds **Coop: Export diagnostics...** to the right-click menu. Logs are written automatically beside LiveSplit under Logs/Coop; exports contain retained sessions and never include invitation codes or room keys. See [diagnostics](diagnostics.md) for retention and recorded fields.

@@ -46,7 +46,7 @@ try {
     if(!$pathNode){$pathNode=$run.CreateElement('LayoutPath');[void]$run.DocumentElement.AppendChild($pathNode)}
     $pathNode.InnerText=$layoutPath;$run.Save($runPath)
     if($PrepareOnly){Write-Output ('Prepared '+$selected.id+' ('+$access.role+')');exit 0}
-    Write-Host 'In LiveSplit: Rechtsklick -> Coop: Connect.'
+    Write-Host 'In LiveSplit: Rechtsklick -> Coop: Reconnect.'
     if($access.role -eq 'host'){Write-Host 'Erst bei Host connected den Spiel-Run starten. Nach dem Lauf Splits speichern.'}
     else{Write-Host 'Following host = verbunden. Der Host steuert Start, Splits und Ende.'}
     Start-Process -FilePath (Join-Path $root 'LiveSplit.exe') -WorkingDirectory $root -ArgumentList ('-s "'+$runPath+'" -l "'+$layoutPath+'"')

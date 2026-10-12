@@ -20,6 +20,24 @@ namespace LiveSplit.Coop {
         public const int Protocol=3;
         const int Replaced=4001,UnknownRoom=4004;
         readonly Uri uri;
+        readonly string diagnosticId=Guid.NewGuid().ToString("N");
+        readonly System.Diagnostics.Stopwatch diagnosticClock=System.Diagnostics.Stopwatch.StartNew();
+        long sentBytes,receivedBytes,sentMessages,receivedMessages,receivedSnapshots,receivedTicks,lastDataAt,maxDataGap,lastStats;
+        int started;
+        void Trace(string action) { CoopDiagnostics.Write("connection",new { connection=diagnosticId,role=role,action=action,generation=generation }); }
+        void DataReceived(bool snapshot) {
+            long now=diagnosticClock.ElapsedMilliseconds;
+            long previous=Interlocked.Exchange(ref lastDataAt,now);
+            if(previous!=0)Interlocked.Exchange(ref maxDataGap,Math.Max(Interlocked.Read(ref maxDataGap),now-previous));
+            if(snapshot)Interlocked.Increment(ref receivedSnapshots);else Interlocked.Increment(ref receivedTicks);
+        }
+        void TraceStatistics() {
+            CoopDiagnostics.Write("transport_totals",new { connection=diagnosticId,role=role,
+                sentBytes=Interlocked.Read(ref sentBytes),receivedBytes=Interlocked.Read(ref receivedBytes),
+                sentMessages=Interlocked.Read(ref sentMessages),receivedMessages=Interlocked.Read(ref receivedMessages),
+                snapshots=Interlocked.Read(ref receivedSnapshots),ticks=Interlocked.Read(ref receivedTicks),
+                maxDataGapMs=Interlocked.Read(ref maxDataGap),generation=generation });
+        }
         readonly string role,key;
         readonly CancellationTokenSource cancel=new CancellationTokenSource();
         readonly object gate=new object();
@@ -50,7 +68,7 @@ namespace LiveSplit.Coop {
             // Protocol v3 addresses the room in the path so a relay can route before the upgrade; the key stays in hello.
             uri=new Uri(server,"/coop/"+room);this.role=role;this.key=key;
         }
-        public void Start() { Task.Run((Func<Task>)Loop); }
+        public void Start() { Interlocked.Exchange(ref started,1);Trace("start");Task.Run((Func<Task>)Loop); }
         public void Publish(Snapshot s) { Publish(s,true,generation); }
         // Returns false when the connection changed since the caller read Generation; nothing is queued then.
         public bool Publish(Snapshot s,bool complete,int forGeneration) {
@@ -67,6 +85,7 @@ namespace LiveSplit.Coop {
         async Task Send(ClientWebSocket ws,string json,CancellationToken ct) {
             var bytes=Encoding.UTF8.GetBytes(json);
             await ws.SendAsync(new ArraySegment<byte>(bytes),WebSocketMessageType.Text,true,ct).ConfigureAwait(false);
+            Interlocked.Add(ref sentBytes,bytes.Length);Interlocked.Increment(ref sentMessages);
         }
         async Task Writer(ClientWebSocket ws,CancellationToken ct) {
             DateTime lastPing=DateTime.UtcNow;
@@ -78,6 +97,7 @@ namespace LiveSplit.Coop {
                 if(ready) lock(gate) { if(pendingSnapshot!=null) { json=pendingSnapshot;pendingSnapshot=null; } else { json=pendingTick;pendingTick=null; } }
                 if(json!=null) await Send(ws,json,ct).ConfigureAwait(false);
                 if(ready && DateTime.UtcNow-lastPing>TimeSpan.FromSeconds(5)) { await Send(ws,"{\"type\":\"ping\"}",ct).ConfigureAwait(false);lastPing=DateTime.UtcNow; }
+                if(diagnosticClock.ElapsedMilliseconds-lastStats>=10000){TraceStatistics();lastStats=diagnosticClock.ElapsedMilliseconds;}
                 await Task.Delay(40,ct).ConfigureAwait(false);
             }
         }
@@ -102,6 +122,7 @@ namespace LiveSplit.Coop {
                         read=await ws.ReceiveAsync(new ArraySegment<byte>(buffer),ct).ConfigureAwait(false);
                         if(read.MessageType==WebSocketMessageType.Close) {
                             int code=read.CloseStatus.HasValue?(int)read.CloseStatus.Value:0;
+                            CoopDiagnostics.Write("socket_closed",new { connection=diagnosticId,code=code });
                             if(code==Replaced) replaced=true;
                             else if(code==UnknownRoom) unknownRoom=true;
                             else if(code==(int)WebSocketCloseStatus.PolicyViolation) { policyClose=true;policyReason=read.CloseStatusDescription; }
@@ -111,21 +132,22 @@ namespace LiveSplit.Coop {
                         stream.Write(buffer,0,read.Count);
                     } while(!read.EndOfMessage);
                     Interlocked.Exchange(ref lastMessage,DateTime.UtcNow.Ticks);
+                    Interlocked.Add(ref receivedBytes,stream.Length);Interlocked.Increment(ref receivedMessages);
                     var json=Json();var msg=json.Deserialize<Dictionary<string,object>>(Encoding.UTF8.GetString(stream.ToArray()));
                     object kind;if(msg==null || !msg.TryGetValue("type",out kind)) throw new InvalidDataException();
-                    if((string)kind=="ready") { lock(gate) generation++;ready=true;status="Connected";phase=RelayPhase.Connected; }
-                    else if((string)kind=="host") hostOnline=Convert.ToBoolean(msg["online"]);
+                    if((string)kind=="ready") { lock(gate) generation++;ready=true;status="Connected";phase=RelayPhase.Connected;Trace("ready"); }
+                    else if((string)kind=="host") { hostOnline=Convert.ToBoolean(msg["online"]);Trace(hostOnline?"host_online":"host_offline"); }
                     else if((string)kind=="state") {
                         var value=json.ConvertToType<Snapshot>(msg["snapshot"]);
                         if(!value.Valid()) throw new InvalidDataException();
                         bool live=Convert.ToBoolean(msg["live"]);
-                        current=value;hostOnline=live;
+                        DataReceived(true);current=value;hostOnline=live;
                         Deliver(new Delivery { snapshot=value,live=live,ageMs=Math.Max(0,Convert.ToInt64(msg["ageMs"])),structural=true });
                     }
                     else if((string)kind=="tick" && current!=null) {
                         var value=current.WithTimes(Convert.ToInt64(msg["seq"]),Ticks(msg["realTicks"]),Ticks(msg["gameTicks"]),Convert.ToBoolean(msg["gamePaused"]));
                         if(!value.Valid()) throw new InvalidDataException();
-                        current=value;hostOnline=true;
+                        DataReceived(false);current=value;hostOnline=true;
                         Deliver(new Delivery { snapshot=value,live=true,ageMs=0 });
                     }
                 }
@@ -140,37 +162,37 @@ namespace LiveSplit.Coop {
                 using(var linked=CancellationTokenSource.CreateLinkedTokenSource(cancel.Token)) {
                     socket=ws;
                     try {
-                        status="Connecting";phase=RelayPhase.Connecting;
+                        status="Connecting";phase=RelayPhase.Connecting;Trace("connecting");
                         using(var timeout=CancellationTokenSource.CreateLinkedTokenSource(linked.Token)) {
                             timeout.CancelAfter(10000);
                             await ws.ConnectAsync(uri,timeout.Token).ConfigureAwait(false);
                         }
-                        phase=RelayPhase.Joining;status="Joining room";
+                        phase=RelayPhase.Joining;status="Joining room";Trace("joining");
                         Interlocked.Exchange(ref lastMessage,DateTime.UtcNow.Ticks);
                         await Send(ws,Json().Serialize(new { type="hello",v=Protocol,role=role,key=key }),linked.Token).ConfigureAwait(false);
                         var reader=Reader(ws,linked.Token);var writer=Writer(ws,linked.Token);
                         var first=await Task.WhenAny(reader,writer).ConfigureAwait(false);
                         linked.Cancel();ws.Abort();
-                        if(first.IsFaulted) status=first.Exception.InnerException is TimeoutException?"Relay not responding; retrying":"Connection lost; retrying";
+                        if(first.IsFaulted) { CoopDiagnostics.Error("transport",first.Exception);status=first.Exception.InnerException is TimeoutException?"Relay not responding; retrying":"Connection lost; retrying"; }
                         try { await Task.WhenAll(reader,writer).ConfigureAwait(false); } catch(Exception) { }
-                    } catch(OperationCanceledException) { }
-                    catch(Exception) { status="Connection lost; retrying"; }
+                    } catch(OperationCanceledException) { if(!cancel.IsCancellationRequested)Trace("connect_timeout"); }
+                    catch(Exception e) { CoopDiagnostics.Error("connect",e);status="Connection lost; retrying"; }
                     finally { ready=false;hostOnline=false;socket=null; }
                 }
                 // Two hosts would otherwise keep replacing each other.
-                if(replaced) { phase=RelayPhase.Stopped;status="Stopped: another host connection took over this room";return; }
-                if(unknownRoom) { phase=RelayPhase.Stopped;status="Stopped: room expired or unknown - check the room or create a new one.";return; }
+                if(replaced) { Trace("host_replaced");phase=RelayPhase.Stopped;status="Stopped: another host connection took over this room";return; }
+                if(unknownRoom) { Trace("unknown_room");phase=RelayPhase.Stopped;status="Stopped: room expired or unknown - check the room or create a new one.";return; }
                 if(policyClose) {
-                    status=PolicyStatus(policyReason);
+                    status=PolicyStatus(policyReason);CoopDiagnostics.Write("policy_close",new { connection=diagnosticId,reason=status });
                     bool terminal=PolicyTerminal(policyReason);
                     policyClose=false;policyReason=null;
-                    if(terminal) { phase=RelayPhase.Stopped;return; }
+                    if(terminal) { Trace("policy_stopped");phase=RelayPhase.Stopped;return; }
                 }
                 if(cancel.IsCancellationRequested) return;
-                phase=RelayPhase.Retrying;
+                phase=RelayPhase.Retrying;Trace("retrying");
                 try { await Task.Delay(3000,cancel.Token).ConfigureAwait(false); } catch(OperationCanceledException) { return; }
             }
         }
-        public void Dispose() { cancel.Cancel();var ws=socket;if(ws!=null) ws.Abort();ready=false;hostOnline=false; }
+        public void Dispose() { if(Interlocked.Exchange(ref started,0)==1){Trace("disposed");TraceStatistics();}cancel.Cancel();var ws=socket;if(ws!=null) ws.Abort();ready=false;hostOnline=false; }
     }
 }
