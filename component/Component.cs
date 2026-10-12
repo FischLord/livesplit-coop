@@ -35,6 +35,9 @@ namespace LiveSplit.Coop {
         readonly CoopSettings settings=new CoopSettings();
         readonly string localPath;
         LocalState local;
+        ProfilePack pack;
+        bool packLoaded;
+        string hostLabel;
         bool autoTried;
         // A viewer lobby is only written to coop-local.json once the relay accepted it; until then it lives in memory.
         bool unconfirmed;
@@ -57,7 +60,11 @@ namespace LiveSplit.Coop {
         Color colour=Color.Gray;
         public CoopComponent(LiveSplitState state) : this(state,LocalState.DefaultPath) { }
         // The local state path is injectable for tests.
-        public CoopComponent(LiveSplitState state,string localPath) {
+        public CoopComponent(LiveSplitState state,string localPath) : this(state,localPath,null,false) { }
+        // Tests: the given pack (or explicitly none) is used and never looked up.
+        public CoopComponent(LiveSplitState state,string localPath,ProfilePack pack) : this(state,localPath,pack,true) { }
+        CoopComponent(LiveSplitState state,string localPath,ProfilePack pack,bool packKnown) {
+            this.pack=pack;packLoaded=packKnown;
             this.state=state;this.localPath=localPath;local=LocalState.Load(localPath);
             settings.OpenRequested+=()=>OpenWindow(settings.FindForm() ?? state.Form);
             state.OnStart+=Started;state.OnSplit+=Split;state.OnUndoSplit+=Undo;state.OnSkipSplit+=Skip;
@@ -96,6 +103,24 @@ namespace LiveSplit.Coop {
             var problem=AutoSplitterProblem(state);
             if(problem!=null) throw new AutoSplitterActive(problem);
         }
+        // Production: the pack is looked up next to LiveSplit on first use.
+        ProfilePack Pack {
+            get {
+                if(!packLoaded) {
+                    packLoaded=true;
+                    try { pack=ProfilePack.Find(AppDomain.CurrentDomain.BaseDirectory); }
+                    catch(Exception e) { CoopDiagnostics.Error("profile_pack",e); }
+                }
+                return pack;
+            }
+        }
+        // Right-hand badge: the pack's label for the loaded splits, the host's label for viewers, else the player count.
+        public string ProfileLabel() {
+            if(Role=="viewer") return hasSnapshot?(hostLabel ?? Players(state.Run)):"";
+            var profile=Pack==null?null:Pack.ForSplits(state.Run.FilePath);
+            return profile!=null && profile.label!=null?profile.label:Players(state.Run);
+        }
+        static string Players(IRun run) { string value;return run.Metadata.VariableValueNames.TryGetValue("Number of Players",out value)?value:""; }
         public string Role { get { return settings.Role; } }
         public string Server { get { return local.server ?? Invite.Community; } set { local.server=value;SaveLocal(); } }
         public LobbyState Lobby { get { return local.lobby!=null && local.lobby.role==Role?local.lobby:null; } }
@@ -176,7 +201,24 @@ namespace LiveSplit.Coop {
         void ForgetUnconfirmed(string code) { unconfirmed=false;local.lobby=null;lastFailure=code;Disconnect(); }
         string LobbyTitle() { var lobby=Lobby;return lobby==null?"":lobby.name ?? Texts.T("status.inviteRoom"); }
         void OpenWindow(IWin32Window owner) {
-            using(var window=new CoopWindow(this,null)) window.ShowDialog(owner);
+            ProfileSection section=null;
+            var available=Pack;
+            if(available!=null) {
+                var current=available.ForSplits(state.Run.FilePath) ?? available.ByKey(local.lastProfile);
+                section=new ProfileSection(available,current,Role=="viewer",hostLabel,state.CurrentPhase!=TimerPhase.NotRunning);
+            }
+            using(var window=new CoopWindow(this,section)) window.ShowDialog(owner);
+            if(section!=null && section.Chosen!=null) LoadProfile(section.Chosen,owner);
+        }
+        // After the layout changes, LiveSplit disposes this component; the new one reconnects to the lobby by itself.
+        void LoadProfile(PackProfile profile,IWin32Window owner) {
+            try {
+                var result=ProfileSwitcher.Switch(state,state.Form,Pack,profile,()=>{ local.lastProfile=Pack.Key(profile);SaveLocal(); });
+                CoopDiagnostics.Write("profile_switch",new { component=diagnosticId,result=result.ToString() });
+            } catch(Exception e) {
+                CoopDiagnostics.Error("profile_switch",e);
+                MessageBox.Show(owner,Texts.T("profile.failed",e.Message),Texts.T("window.title"),MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
         }
         public void Connect() {
             connectFailure=null;
@@ -200,7 +242,7 @@ namespace LiveSplit.Coop {
                 catch(CryptographicException) { connectFailure="key_unreadable";SetStatus(Texts.T("lobby.keyUnreadable"),Color.IndianRed);return; }
                 if(role=="viewer") { RequireNoAutoSplitter(state);mirror=new Mirror(state); }
                 connection=new RelayConnection(lobby.server,lobby.roomId,role,key);
-                connection.Start();dirty=true;hasSnapshot=false;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
+                connection.Start();dirty=true;hasSnapshot=false;hostLabel=null;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
                 SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod);
             } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();connectFailure="autosplitter";SetStatus(Texts.T("status.autosplitter"),e.Message,Color.IndianRed); }
             catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus(e.Message,Color.IndianRed); }
@@ -237,6 +279,7 @@ namespace LiveSplit.Coop {
                         if(!Object.ReferenceEquals(publishingRun,state.Run)) { publishingRun=state.Run;runId=Guid.NewGuid().ToString("N");dirty=true; }
                         if(connection.Ready && (dirty || watch.ElapsedMilliseconds-lastPublished>=250)) {
                             var snapshot=Snapshot.Capture(state,runId,attemptId,++sequence);
+                            string badge=ProfileLabel();snapshot.profileLabel=badge.Length>0 && badge.Length<=60?badge:null;
                             if(!snapshot.Valid()) throw new InvalidOperationException(Texts.T("detail.tooLarge"));
                             // Complete snapshots only when something besides the clock changed or after a reconnect.
                             int generation=connection.Generation;string structure=snapshot.StructureKey();
@@ -253,7 +296,7 @@ namespace LiveSplit.Coop {
                         if(watch.ElapsedMilliseconds-lastGuard>=1000) { lastGuard=watch.ElapsedMilliseconds;RequireNoAutoSplitter(state); }
                         var delivery=connection.Take();
                         if(delivery!=null) {
-                            if(delivery.structural) { mirror.Adopt(delivery.snapshot);TraceRun("snapshot_applied"); } else mirror.Advance(delivery.snapshot);
+                            if(delivery.structural) { mirror.Adopt(delivery.snapshot);hostLabel=delivery.snapshot.profileLabel;TraceRun("snapshot_applied"); } else mirror.Advance(delivery.snapshot);
                             hasSnapshot=true;lastReceived=watch.ElapsedMilliseconds;
                             initialAge=delivery.ageMs;frozenElapsed=delivery.live?-1:Math.Min(initialAge,1500);
                         }
@@ -302,7 +345,7 @@ namespace LiveSplit.Coop {
             }
         }
         void Draw(Graphics g,float width,float height) {
-            string players=settings.Role=="viewer" && !hasSnapshot?"Players: ?":RunProfile.CategoryLabel(state.Run);
+            string players=ProfileLabel();
             float badge=Math.Min(width/2,g.MeasureString(players,font).Width+12);
             using(var brush=new SolidBrush(colour)) using(var format=new StringFormat { Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap }) {
                 g.DrawString(label,font,brush,new RectangleF(4,2,Math.Max(0,width-badge-8),height-2),format);

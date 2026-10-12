@@ -28,6 +28,7 @@ namespace LiveSplit.Coop {
         public SegmentData[] segments;
         // Optional v3 field: older hosts omit it and older viewers ignore it.
         public Dictionary<string,string> runVariables;
+        public string profileLabel;
         public static Snapshot Capture(LiveSplitState s,string runId,string attemptId,long seq) {
             var time=s.CurrentTime;
             return new Snapshot {
@@ -36,7 +37,7 @@ namespace LiveSplit.Coop {
                 timingMethod=s.CurrentTimingMethod.ToString(),comparison=s.CurrentComparison ?? "Personal Best",
                 offsetTicks=s.Run.Offset.Ticks,realTicks=Pair.Tick(time.RealTime),gameTicks=Pair.Tick(time.GameTime),
                 gamePaused=s.IsGameTimePaused,
-                runVariables=RunProfile.Variables(s.Run),
+                runVariables=new Dictionary<string,string>(s.Run.Metadata.VariableValueNames),
                 segments=s.Run.Select(seg => new SegmentData {
                     name=seg.Name,splitRT=Pair.Tick(seg.SplitTime.RealTime),splitGT=Pair.Tick(seg.SplitTime.GameTime),
                     pbRT=Pair.Tick(seg.PersonalBestSplitTime.RealTime),pbGT=Pair.Tick(seg.PersonalBestSplitTime.GameTime),
@@ -56,6 +57,7 @@ namespace LiveSplit.Coop {
         static bool T(long? t) { return !t.HasValue || (t>=-Limit && t<=Limit); }
         static bool Text(string t,int max) { return t!=null && t.Length<=max && !t.Any(char.IsControl); }
         public bool Valid() {
+            if(profileLabel!=null && !Text(profileLabel,60)) return false;
             if(runVariables!=null && (runVariables.Count>32 || runVariables.Any(kv=>!Text(kv.Key,100) || !Text(kv.Value,200)))) return false;
             if(type!="snapshot" || v!=RelayConnection.Protocol || seq<0 || !Text(runId,80) || !Text(attemptId,80) ||
                !Text(game,200) || !Text(category,200) || !Text(comparison,100) || attempts<0 ||

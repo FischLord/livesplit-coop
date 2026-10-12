@@ -102,22 +102,11 @@ public static class Regression {
                 var json=RelayConnection.Json().Serialize(next);
                 next=RelayConnection.Json().Deserialize<Snapshot>(json);
                 mirror.Adopt(next);
-                Check(RunProfile.Players(viewer.Run)==players,"JSON roundtrip and player label: "+players);
+                Check(viewer.Run.Metadata.VariableValueNames["Number of Players"]==players,"JSON roundtrip and player label: "+players);
             }
-            host.Run.FilePath=@"C:\RV\Timer\Splits\St. Buttin Bay\All Checkpoints\No Major Glitches\Trio.lss";
-            host.Run.Metadata.VariableValueNames.Clear();
-            var recovered=Snapshot.Capture(host,"run","attempt",3);
-            mirror.Adopt(recovered);
-            Check(RunProfile.Players(viewer.Run)=="Trio","Missing RV metadata recovered from exact profile path");
-            Check(RunProfile.CategoryLabel(viewer.Run)=="Trio / Fullgame","All Checkpoints displayed as Fullgame after transfer");
-            host.Run.FilePath=@"C:\RV\Timer\Splits\St. Buttin Bay\Finish Only\No Major Glitches\Solo.lss";
-            var finish=Snapshot.Capture(host,"finish","attempt",4);mirror.Adopt(finish);
-            Check(RunProfile.CategoryLabel(viewer.Run)=="Solo / Finish Only","Finish Only remains distinct after transfer");
-            Check(host.Run.Metadata.VariableValueNames.Count==0,"Recovery leaves personal run data unchanged");
-            recovered.runVariables=null;mirror.Adopt(recovered);
-            Check(RunProfile.Players(viewer.Run)=="Players: ?","Old host supported without retaining stale player count");
-            recovered.runVariables=new System.Collections.Generic.Dictionary<string,string>{{"bad","line\nbreak"}};
-            Check(!recovered.Valid(),"Malformed metadata rejected");
+            var malformed=Snapshot.Capture(host,"run","attempt",3);
+            malformed.runVariables=new System.Collections.Generic.Dictionary<string,string>{{"bad","line\nbreak"}};
+            Check(!malformed.Valid(),"Malformed metadata rejected");
         }
     }
     public static void Rainbow(string output) {

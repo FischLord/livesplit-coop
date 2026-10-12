@@ -52,6 +52,7 @@ public static class ProfileTests {
         PreparerTests(work);
         SwitcherTests(work);
         SectionTests(work);
+        ComponentTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void PackTests(string work) {
@@ -154,6 +155,33 @@ public static class ProfileTests {
         var running=NewState();var timer=new TimerModel{CurrentState=running};timer.Start();
         Check(ProfileSwitcher.Switch(running,new FakeForm{state=running},pack,b,()=>commits++,null)==ProfileSwitcher.Result.Running && commits==3,"a running timer blocks switching");
     }
+    static void ComponentTests(string work) {
+        string root=MakePack(work,"component");
+        var pack=ProfilePack.Load(Path.Combine(root,"coop-profiles.json"));
+        var state=NewState();state.Run.GameName="Test Game";state.Run.CategoryName="Map B Finish";state.Run.FilePath=pack.FullPath("Splits/B/NMG.lss");
+        state.Run.Metadata.VariableValueNames["Number of Players"]="Solo";
+        var snap=Snapshot.Capture(state,"run1","attempt1",1);
+        Check(snap.runVariables["Number of Players"]=="Solo","snapshot carries the run's own variables");
+        snap.profileLabel="Solo / Finish Only";Check(snap.Valid(),"snapshot with a profile label is valid");
+        snap.profileLabel=new string('x',61);Check(!snap.Valid(),"profile labels over 60 characters are invalid");
+        snap.profileLabel="bad\nlabel";Check(!snap.Valid(),"profile labels with control characters are invalid");
+        snap.profileLabel=null;Check(snap.Valid(),"snapshots without a label stay valid");
+        string local=Path.Combine(work,"component-local.json");
+        using(var component=new CoopComponent(state,local,pack)) {
+            component.SetSettings(XmlRole("host"));
+            Check(component.ProfileLabel()=="Solo / Finish Only","host badge shows the pack label of the loaded splits");
+        }
+        var other=NewState();other.Run.Metadata.VariableValueNames["Number of Players"]="Trio";
+        using(var component=new CoopComponent(other,local,null)) {
+            component.SetSettings(XmlRole("host"));
+            Check(component.ProfileLabel()=="Trio","without a pack the badge falls back to the player count");
+        }
+        using(var component=new CoopComponent(NewState(),local,null)) {
+            component.SetSettings(XmlRole("viewer"));
+            Check(component.ProfileLabel()=="","viewers show nothing before the host's first snapshot");
+        }
+    }
+    static XmlNode XmlRole(string role){var doc=new XmlDocument();doc.LoadXml("<Settings><Version>2</Version><Role>"+role+"</Role></Settings>");return doc.DocumentElement;}
     static readonly BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
     static Control Find(Control parent,string name){foreach(Control c in parent.Controls){if(c.Name==name)return c;var child=Find(c,name);if(child!=null)return child;}return null;}
     static void Click(Control c){c.GetType().GetMethod("OnClick",Hidden,null,new[]{typeof(EventArgs)},null).Invoke(c,new object[]{EventArgs.Empty});}
