@@ -1,0 +1,56 @@
+// Lobby endpoints of the Cloudflare relay, against the local workerd runtime.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import WebSocket from 'ws';
+import { startDev } from './dev.mjs';
+import { snapshot } from '../../relay/test/conformance.mjs';
+
+let dev;
+before(async () => { dev = await startDev(); }, { timeout: 120000 });
+after(() => dev?.stop());
+const http = () => dev.base.replace('ws:', 'http:');
+// State persists between runs (.wrangler/test-state), so every test uses fresh names.
+const unique = prefix => (prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)).slice(0, 32);
+const key = c => c.repeat(43);
+const create = body => fetch(http() + '/lobbies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function client(roomId, role, k) {
+  const ws = new WebSocket(`${dev.base}/coop/${roomId}`); const queue = [], waiters = [];
+  ws.on('message', data => { const m = JSON.parse(data); const i = waiters.findIndex(w => w.type === m.type); if (i < 0) queue.push(m); else waiters.splice(i, 1)[0].resolve(m); });
+  ws.next = type => new Promise((resolve, reject) => {
+    const index = queue.findIndex(m => m.type === type); if (index >= 0) { resolve(queue.splice(index, 1)[0]); return; }
+    const timer = setTimeout(() => reject(new Error('Timeout waiting for ' + type)), 5000);
+    waiters.push({ type, resolve: m => { clearTimeout(timer); resolve(m); } });
+  });
+  await once(ws, 'open'); ws.send(JSON.stringify({ type: 'hello', v: 3, role, key: k })); return ws;
+}
+const closed = async ws => { const [code, reason] = await once(ws, 'close'); return [code, reason.toString()]; };
+
+test('lobbies: create, connect host and viewer with the derived key, refuse a taken name', async () => {
+  const name = unique('cr');
+  const response = await create({ name: '  ' + name.toUpperCase() + ' ', viewerKey: key('v'), public: false, locked: true });
+  assert.equal(response.status, 201);
+  const made = await response.json();
+  assert.equal(made.roomId, 'lobby_' + name);
+  assert.match(made.hostKey, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(made.idleExpiryDays, 7);
+  assert.equal('viewerKey' in made, false, 'the relay never returns the viewer key');
+  const host = await client(made.roomId, 'host', made.hostKey); assert.equal((await host.next('ready')).role, 'host');
+  const viewer = await client(made.roomId, 'viewer', key('v')); await viewer.next('ready');
+  host.send(JSON.stringify(snapshot())); assert.equal((await viewer.next('state')).snapshot.seq, 1);
+  assert.equal((await create({ name, viewerKey: key('w'), public: false, locked: true })).status, 409);
+  const wrong = await client(made.roomId, 'viewer', key('w')); assert.equal((await closed(wrong))[0], 1008);
+  host.close(); viewer.close();
+});
+
+test('lobbies: invalid bodies are rejected with 400', async () => {
+  const ok = { name: unique('iv'), viewerKey: key('v'), public: true, locked: false };
+  for (const bad of [{ ...ok, name: 'ab' }, { ...ok, name: 'a b c' }, { ...ok, viewerKey: 'short' }, { ...ok, viewerKey: key('v') + '!' },
+                     { ...ok, public: 'yes' }, { ...ok, locked: undefined }]) {
+    assert.equal((await create(bad)).status, 400, JSON.stringify(bad));
+  }
+  const notJson = await fetch(http() + '/lobbies', { method: 'POST', body: '{' });
+  assert.equal(notJson.status, 400);
+  const tooBig = await fetch(http() + '/lobbies', { method: 'POST', body: JSON.stringify({ ...ok, pad: 'x'.repeat(2000) }) });
+  assert.equal(tooBig.status, 400);
+});

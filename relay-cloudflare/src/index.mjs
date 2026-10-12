@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { PROTOCOL, validSnapshot, validTick } from '../../relay/src/protocol.mjs';
+import { normalizeName, visible } from './directory.mjs';
 
 // Same wire protocol as relay/src/server.mjs, rebuilt on the Durable Object hibernation API:
 // one object per room, no timers (alarms only), state that must survive hibernation lives in
@@ -19,6 +20,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/healthz' && !url.search) return json(200, { ok: true });
     // Browsers could send this cross-site; only native clients may create rooms.
     if (request.method === 'POST' && url.pathname === '/rooms' && !url.search && !request.headers.get('Origin')) return createRoom(request, env);
+    if (request.method === 'POST' && url.pathname === '/lobbies' && !url.search && !request.headers.get('Origin')) return createLobby(request, env);
     const path = /^\/coop(?:\/([a-zA-Z0-9_-]{1,64}))?$/.exec(url.pathname);
     if (!path) return json(404);
     // Native client only. Browsers and URL credentials are deliberately unsupported.
@@ -36,6 +38,25 @@ async function createRoom(request, env) {
   const roomId = token(16), hostKey = token(32), viewerKey = token(32);
   await env.ROOMS.get(env.ROOMS.idFromName(roomId)).init(hex(await digest(hostKey)), hex(await digest(viewerKey)));
   return json(201, { roomId, hostKey, viewerKey, idleExpiryDays: IDLE_MS / DAY });
+}
+
+// A lobby is a room with a chosen name. The client derives the viewer key from the lobby password,
+// so the relay only ever sees (and stores the hash of) that key, never the password.
+async function createLobby(request, env) {
+  if (env.ROOM_CREATION !== '1') return json(404);
+  let body;
+  try { const text = await request.text(); if (text.length > 1024) return json(400); body = JSON.parse(text); } catch { return json(400); }
+  const name = normalizeName(body?.name);
+  if (!name || typeof body.viewerKey !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(body.viewerKey) ||
+      typeof body.public !== 'boolean' || typeof body.locked !== 'boolean') return json(400);
+  const { success } = await env.CREATE_LIMIT.limit({ key: request.headers.get('CF-Connecting-IP') || 'unknown' });
+  if (!success) return json(429, undefined, { 'Retry-After': '60' });
+  const roomId = 'lobby_' + name, room = env.ROOMS.get(env.ROOMS.idFromName(roomId));
+  if (await room.exists()) return json(409);
+  if (!await env.QUOTA.get(env.QUOTA.idFromName('global')).take(Number(env.ROOMS_PER_DAY) || 0)) return json(503);
+  const hostKey = token(32);
+  if (!await room.init(hex(await digest(hostKey)), hex(await digest(body.viewerKey)), { name, public: body.public, locked: body.locked })) return json(409);
+  return json(201, { roomId, hostKey, idleExpiryDays: IDLE_MS / DAY });
 }
 
 // Bare /coop only exists so clients older than v3 learn that they must update.
@@ -89,13 +110,20 @@ export class Room extends DurableObject {
   }
   async touch() { await this.ctx.storage.put('active', Date.now()); }
 
-  async init(hostHash, viewerHash) {
-    if (this.meta) throw new Error('Room exists');
-    this.meta = { hostHash, viewerHash };
+  exists() { return !!this.meta; }
+
+  // Returns false when the room already exists (a lobby name that is taken).
+  async init(hostHash, viewerHash, lobby = null) {
+    if (this.meta) return false;
+    this.meta = lobby ? { hostHash, viewerHash, lobby } : { hostHash, viewerHash };
     await this.ctx.storage.put('meta', this.meta);
     await this.touch();
     await this.wakeAt(Date.now() + IDLE_MS);
+    await this.report();
+    return true;
   }
+
+  async report() {}
 
   async fetch() {
     const pending = this.sockets().filter(s => !s.a.role && s.ws.readyState === WebSocket.OPEN);
