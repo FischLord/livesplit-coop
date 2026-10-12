@@ -18,6 +18,7 @@ public static class LobbyTests {
         TextTests();
         ClientTests(relay);
         StateTests(work);
+        ConnectionTests(relay);
         Console.WriteLine(passed+" checks passed");
     }
     static string Unique(string prefix){return (prefix+DateTime.UtcNow.Ticks.ToString("x")+Guid.NewGuid().ToString("N").Substring(0,4)).Substring(0,Math.Min(32,prefix.Length+18));}
@@ -87,5 +88,33 @@ public static class LobbyTests {
         Check(LobbyKey.DeriveViewerKey("rvgang","")=="JVAHdf1Hp1wDTb7CSkWYefP--tDQbeGW99nLdEddUuI","PBKDF2 vector with empty password");
         Check(LobbyKey.DeriveViewerKey(" Team_1-A ","Pässwört")=="5QBHS-ppwQmkAzPN299KtsVX-bqPOaTHvl23jg90QnI","PBKDF2 vector with UTF-8 password and normalized name");
         Throws<ArgumentException>(()=>LobbyKey.DeriveViewerKey("x","pw"),"deriving a key for an invalid name throws");
+    }
+    static bool Until(Func<bool> ok){var clock=Stopwatch.StartNew();while(!ok() && clock.ElapsedMilliseconds<8000)Thread.Sleep(20);return ok();}
+    static void ConnectionTests(string relay) {
+        var grant=LobbyClient.Create(relay,Unique("cn"),"banane",false);
+        using(var host=new RelayConnection(relay,grant.roomId,"host",grant.hostKey)) {
+            host.Start();
+            Check(Until(()=>host.Ready) && Until(()=>host.Viewers==0),"host learns it has no viewers");
+            using(var viewer=new RelayConnection(relay,grant.roomId,"viewer",grant.viewerKey)) {
+                viewer.Start();
+                Check(Until(()=>viewer.Ready) && Until(()=>host.Viewers==1),"host learns about a viewer");
+                Check(viewer.StopReason==null,"a working connection has no stop reason");
+            }
+            Check(Until(()=>host.Viewers==0),"host learns the viewer left");
+        }
+        using(var wrong=new RelayConnection(relay,grant.roomId,"viewer",LobbyKey.DeriveViewerKey(grant.name,"falsch"))) {
+            wrong.Start();
+            Check(Until(()=>wrong.StopReason!=null) && wrong.StopReason=="auth_failed" && wrong.Phase==RelayPhase.Stopped,"wrong password stops with auth_failed");
+        }
+        using(var missing=new RelayConnection(relay,LobbyKey.RoomId(Unique("no")),"viewer",LobbyKey.DeriveViewerKey("abc",""))) {
+            missing.Start();
+            Check(Until(()=>missing.StopReason!=null) && missing.StopReason=="unknown_room","unknown lobby stops with unknown_room");
+        }
+        var locked=LobbyClient.Create(relay,Unique("tm"),"richtig",false);
+        for(int i=0;i<10;i++) using(var bad=new RelayConnection(relay,locked.roomId,"viewer",LobbyKey.DeriveViewerKey(locked.name,"falsch"+i))) { bad.Start();Until(()=>bad.StopReason!=null); }
+        using(var right=new RelayConnection(relay,locked.roomId,"viewer",locked.viewerKey)) {
+            right.Start();
+            Check(Until(()=>right.StopReason!=null) && right.StopReason=="too_many","the lockout stops with too_many even with the right password");
+        }
     }
 }
