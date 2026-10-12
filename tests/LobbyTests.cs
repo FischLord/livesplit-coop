@@ -499,6 +499,17 @@ public static class LobbyTests {
             Check(HostLock.IsHeld(lockedSplits),"a host copy locks its open splits");
         }
         Check(!HostLock.IsHeld(lockedSplits) && !File.Exists(HostLock.PathFor(lockedSplits)),"disposing the host copy releases the lock");
+        // Splits that appear after the first update are locked within a second or so.
+        string lateSplits=Path.Combine(work,"late.lss");if(File.Exists(lateSplits)) File.Delete(lateSplits);
+        var lateState=NewState();lateState.Run.FilePath=lateSplits;
+        using(var component=new CoopComponent(lateState,Path.Combine(work,"late-local.json"))) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            component.Update(null,lateState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            File.WriteAllText(lateSplits,"x");
+            System.Threading.Thread.Sleep(1100);
+            component.Update(null,lateState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(HostLock.IsHeld(lateSplits),"a lock is taken once the splits file appears");
+        }
         // A role change in the layout settings drops the connection of the old role.
         new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);
         var roleState=NewState();
