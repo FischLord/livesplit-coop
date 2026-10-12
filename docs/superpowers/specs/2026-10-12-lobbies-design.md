@@ -40,7 +40,7 @@ Raum-ID = `lobby_<name>`; WebSocket-Pfad wie bisher `/coop/<raum-id>`, Protokoll
 - Host-Schlüssel: zufällig vom Relay, nur beim Erstellen übertragen, lokal DPAPI-geschützt.
 - Der Relay speichert wie bisher nur SHA-256 beider Schlüssel.
 
-**Endpunkte** (nur native Clients: ohne `Origin`-Header, wie `/rooms`):
+**Endpunkte** (`POST` nur für native Clients ohne `Origin`-Header, wie `/rooms`; `GET /lobbies` ist eine öffentliche Leseabfrage ohne Origin-Beschränkung):
 - `POST /lobbies` Body `{name, viewerKey, public, locked}` → `201 {roomId, hostKey, idleExpiryDays}`;
   `409` Name vergeben; `400` ungültig; `429`/`503` wie `/rooms` (gleiches IP-Limit, gleiches Tageskontingent).
 - `GET /lobbies` → `200 {lobbies:[{name, locked, hostOnline, viewers, game, category, label, updated}]}`,
@@ -50,7 +50,7 @@ Raum-ID = `lobby_<name>`; WebSocket-Pfad wie bisher `/coop/<raum-id>`, Protokoll
 
 **Verzeichnis.** Ein Durable Object `Directory` („global“) hält die öffentlichen Einträge.
 Der Raum meldet: Erstellen, Host verbunden/getrennt, Viewerzahl, Strukturänderung des Snapshots
-(Spiel, Kategorie, `profileLabel`; höchstens alle 10 s), Ablauf → Eintrag entfernen.
+(Spiel, Kategorie, `profileLabel`); höchstens ein Verzeichnis-Update pro Raum alle 10 s, Verzeichnisfehler stören nie das Relaying, bei Host online stündliche Auffrischung, Ablauf → Eintrag entfernen.
 
 **Fehlversuche.** Der Worker reicht `CF-Connecting-IP` als `X-Coop-IP` an den Raum (ein vom Client
 gesendeter Header wird überschrieben); der Raum merkt sie im Socket-Attachment. Jeder Raum zählt
