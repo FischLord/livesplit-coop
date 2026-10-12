@@ -38,7 +38,7 @@ namespace LiveSplit.Coop {
         bool autoTried;
         // A viewer lobby is only written to coop-local.json once the relay accepted it; until then it lives in memory.
         bool unconfirmed;
-        string lastFailure,saveError;
+        string saveError,lastFailure,saveWarning,connectFailure,statusDetail="";
         string statusLine="";
         readonly Stopwatch watch=Stopwatch.StartNew();
         readonly Font font=new Font("Segoe UI",9);
@@ -132,6 +132,8 @@ namespace LiveSplit.Coop {
             return null;
         }
         public string LastFailure { get { return lastFailure; } }
+        // Set while the last write of coop-local.json failed; cleared by the next successful write.
+        public string SaveWarning { get { return saveWarning; } }
         // Returns null, or a warning when a host lobby works but could not be saved.
         public string UseLobby(LobbyGrant grant,string password) {
             lastFailure=null;
@@ -166,9 +168,9 @@ namespace LiveSplit.Coop {
         // An unconfirmed lobby never reaches the file, whatever else is saved meanwhile.
         bool SaveLocal() {
             var held=local.lobby;
-            try { if(unconfirmed) local.lobby=null;local.Save(localPath);return true; }
-            catch(Exception e) { saveError=e.Message;CoopDiagnostics.Error("local_state",e);return false; }
-            finally { local.lobby=held; }
+            try { if(unconfirmed) local.lobby=null;local.Save(localPath);saveWarning=null;return true; }
+            catch(Exception e) { saveError=e.Message;saveWarning=Texts.T("local.saveFailed",e.Message);CoopDiagnostics.Error("local_state",e);return false; }
+            finally { local.lobby=held;settings.Status(statusDetail+(saveWarning==null?"":"\n"+saveWarning)); }
         }
         // The relay (or a local connect error) turned an unconfirmed lobby down: forget it and remember why.
         void ForgetUnconfirmed(string code) { unconfirmed=false;local.lobby=null;lastFailure=code;Disconnect(); }
@@ -177,8 +179,15 @@ namespace LiveSplit.Coop {
             using(var window=new CoopWindow(this,null)) window.ShowDialog(owner);
         }
         public void Connect() {
+            connectFailure=null;
             ConnectCore();
-            if(unconfirmed && connection==null) ForgetUnconfirmed("rejected");
+            if(connection==null && connectFailure!=null) lastFailure=connectFailure;
+            if(unconfirmed && connection==null) {
+                // Keep the specific status (Disconnect inside would reset it to "not connected").
+                string hud=statusLine,detail=statusDetail;Color shown=colour;
+                ForgetUnconfirmed(connectFailure ?? "rejected");
+                if(connectFailure!=null) SetStatus(hud,detail,shown);
+            }
         }
         void ConnectCore() {
             Disconnect();
@@ -188,12 +197,12 @@ namespace LiveSplit.Coop {
                 role=Role;CoopDiagnostics.Write("connect_requested",new { component=diagnosticId,role=role });
                 string key;
                 try { key=LocalState.Unprotect(role=="host"?lobby.protectedHostKey:lobby.protectedViewerKey); }
-                catch(CryptographicException) { SetStatus(Texts.T("lobby.keyUnreadable"),Color.IndianRed);return; }
+                catch(CryptographicException) { connectFailure="key_unreadable";SetStatus(Texts.T("lobby.keyUnreadable"),Color.IndianRed);return; }
                 if(role=="viewer") { RequireNoAutoSplitter(state);mirror=new Mirror(state); }
                 connection=new RelayConnection(lobby.server,lobby.roomId,role,key);
                 connection.Start();dirty=true;hasSnapshot=false;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
                 SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod);
-            } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();SetStatus(Texts.T("status.autosplitter"),e.Message,Color.IndianRed); }
+            } catch(AutoSplitterActive e) { CoopDiagnostics.Error("autosplitter_guard",e);Disconnect();connectFailure="autosplitter";SetStatus(Texts.T("status.autosplitter"),e.Message,Color.IndianRed); }
             catch(Exception e) { CoopDiagnostics.Error("component",e);Disconnect();SetStatus(e.Message,Color.IndianRed); }
         }
         public void Disconnect() {
@@ -204,7 +213,7 @@ namespace LiveSplit.Coop {
         }
         void SetStatus(string message,Color c) { SetStatus(message,message,c); }
         // hudMessage stays short enough for the layout; detailMessage (settings panel) can carry the full reason.
-        void SetStatus(string hudMessage,string detailMessage,Color c) { statusLine=hudMessage;label="Coop: "+hudMessage;colour=c;settings.Status(detailMessage); }
+        void SetStatus(string hudMessage,string detailMessage,Color c) { statusLine=hudMessage;label="Coop: "+hudMessage;colour=c;statusDetail=detailMessage;settings.Status(detailMessage+(saveWarning==null?"":"\n"+saveWarning)); }
         // Only a terminal Stopped phase is an error colour; Connecting/Joining/Retrying are normal in-progress states.
         static Color PhaseColor(RelayPhase phase) { return phase==RelayPhase.Stopped?Color.IndianRed:Color.Goldenrod; }
         public void Update(IInvalidator invalidator,LiveSplitState ignored,float width,float height,LayoutMode mode) {
@@ -214,7 +223,10 @@ namespace LiveSplit.Coop {
                 if(rainbowGraph.Update(state) && state.Form!=null)state.Form.Invalidate();
             }
             // The role is set per layout; a connection made for the other role would publish or mirror against the wrong timer.
-            if(connection!=null && role!=Role) { Disconnect();if(Lobby!=null) Connect(); }
+            if(connection!=null && role!=Role) {
+                // An unconfirmed lobby belongs to the old role and would otherwise stay in memory unseen.
+                if(unconfirmed) ForgetUnconfirmed(null); else { Disconnect();if(Lobby!=null) Connect(); }
+            }
             if(unconfirmed && connection!=null) {
                 if(connection.Ready) { unconfirmed=false;SaveLocal(); }
                 else if(connection.StopReason!=null) ForgetUnconfirmed(connection.StopReason);

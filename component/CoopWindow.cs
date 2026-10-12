@@ -21,7 +21,8 @@ namespace LiveSplit.Coop {
         bool ShareIsInvite { get; }     // ShareText is an invitation code
         string LastLobbyName { get; }   // host: the lobby that was left last and can be reopened, or null
         void ReopenLast();
-        string LastFailure { get; }     // why the last UseLobby/JoinInvite was turned down (StopReason code, or "rejected"); null otherwise
+        string LastFailure { get; }     // why the last UseLobby/JoinInvite was turned down (StopReason code, "autosplitter", "key_unreadable" or "rejected"); null otherwise
+        string SaveWarning { get; }     // localized warning while coop-local.json cannot be written, else null
         string UseLobby(LobbyGrant grant,string password);   // null, or a warning to show (e.g. the lobby could not be saved)
         bool JoinInvite(string invite);
         void Reconnect();
@@ -37,6 +38,7 @@ namespace LiveSplit.Coop {
         readonly FlowLayoutPanel current=Stack(),createPanel=Stack(),joinPanel=Stack(),advanced=Stack();
         readonly Label lobbyInfo=new Label { Name="lobbyInfo",AutoSize=true,MaximumSize=new Size(480,0) };
         readonly Label status=new Label { Name="status",AutoSize=true,MaximumSize=new Size(480,0) };
+        readonly Label saveWarning=new Label { Name="saveWarning",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.Firebrick,Visible=false };
         readonly Label message=new Label { Name="message",AutoSize=true,MaximumSize=new Size(480,0),Margin=new Padding(0,6,0,0) };
         readonly TextBox name=new TextBox { Name="lobbyName",Width=230,MaxLength=32 };
         readonly TextBox password=new TextBox { Name="lobbyPassword",Width=230,MaxLength=128,UseSystemPasswordChar=true };
@@ -56,7 +58,7 @@ namespace LiveSplit.Coop {
             AutoScaleMode=AutoScaleMode.Dpi;AutoSize=true;AutoSizeMode=AutoSizeMode.GrowAndShrink;MinimumSize=new Size(530,0);
             Controls.Add(body);
             if(profileSection!=null) { body.Controls.Add(Heading("section.profile"));body.Controls.Add(profileSection); }
-            body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);
+            body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);body.Controls.Add(saveWarning);
             BuildCurrent();
             if(session.Role=="host") BuildCreate(); else BuildJoin();
             body.Controls.Add(current);body.Controls.Add(createPanel);body.Controls.Add(joinPanel);body.Controls.Add(message);
@@ -131,6 +133,7 @@ namespace LiveSplit.Coop {
             bool has=session.Lobby!=null;
             current.Visible=has;createPanel.Visible=!has && session.Role=="host";joinPanel.Visible=!has && session.Role!="host";
             if(!busy) status.Text=session.StatusLine;
+            string warning=session.SaveWarning;saveWarning.Text=warning ?? "";saveWarning.Visible=warning!=null;
             Find("reconnect").Visible=has && !session.Connected && session.StopReason!=null && !pendingJoin;
             var lobby=session.Lobby;
             if(lobby!=null) lobbyInfo.Text=lobby.name==null?Texts.T("status.inviteRoom"):lobby.name+" · "+Texts.T(lobby.isPublic?"status.public":"status.private");
@@ -147,6 +150,8 @@ namespace LiveSplit.Coop {
                 case "unknown_room": return Texts.T("lobby.unknown");
                 case "replaced": return Texts.T("lobby.replaced");
                 case "protocol": return Texts.T("lobby.protocol");
+                case "autosplitter": return Texts.T("status.autosplitter");
+                case "key_unreadable": return Texts.T("lobby.keyUnreadable");
                 default: return Texts.T("lobby.rejected");
             }
         }
@@ -183,15 +188,21 @@ namespace LiveSplit.Coop {
             string problem=session.JoinProblem();
             if(problem!=null) { Report(problem,true);return; }
             busy=true;string target=ApplyServer(),secret=password.Text;status.Text=Texts.T("lobby.joining");
-            // PBKDF2 takes a noticeable moment; keep the window responsive.
-            var grant=await Task.Run(()=>new LobbyGrant { server=target,name=lobbyName,roomId=LobbyKey.RoomId(lobbyName),
-                viewerKey=LobbyKey.DeriveViewerKey(lobbyName,secret),locked=secret.Length>0 });
-            if(Gone) return;
-            StartPending();
-            session.UseLobby(grant,null);
-            Sync();
+            try {
+                // PBKDF2 takes a noticeable moment; keep the window responsive.
+                var grant=await Task.Run(()=>new LobbyGrant { server=target,name=lobbyName,roomId=LobbyKey.RoomId(lobbyName),
+                    viewerKey=LobbyKey.DeriveViewerKey(lobbyName,secret),locked=secret.Length>0 });
+                if(Gone) return;
+                StartPending();
+                session.UseLobby(grant,null);
+            } catch(Exception e) {
+                busy=pendingJoin=false;
+                if(!Gone) Report(Texts.T("lobby.unreachable",e.Message),true);
+            }
+            if(!Gone) Sync();
         }
         void JoinInvite() {
+            if(busy) return;
             message.Text="";
             string problem=session.JoinProblem();
             if(problem!=null) { Report(problem,true);return; }

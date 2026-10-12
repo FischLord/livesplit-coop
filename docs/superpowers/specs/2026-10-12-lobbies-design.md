@@ -69,6 +69,8 @@ Neben `LiveSplit.exe` der jeweiligen Kopie:
 Schlüssel DPAPI (CurrentUser). Layouts enthalten **keine** Raum-Zugangsdaten mehr; beim Laden
 alter Layouts werden vorhandene Raumdaten einmalig nach `coop-local.json` übernommen (falls dort
 leer) und nicht mehr ins Layout geschrieben. „Save Layout“ ist für Coop nie mehr nötig.
+`lastHostLobby` (gleiche Form wie `lobby`) merkt sich die zuletzt verlassene benannte Host-Lobby, damit sie im Fenster wieder geöffnet werden kann.
+`migratedLegacyRooms` ist die Liste der aus Layouts übernommenen Raum-IDs, damit ein verlassener alter Raum nicht erneut migriert wird.
 
 ### 3.2 Coop-Fenster (Rechtsklick → „Coop…“)
 Ersetzt Host…, Join…, Copy invite, Reconnect, Disconnect. Bereiche:

@@ -324,7 +324,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
         Check(run.AttemptHistory[0].Time.RealTime==TimeSpan.FromSeconds(190),"attempt history has the final time");
         Check(run[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(190) && run[1].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(120),"new PB is recorded");
         Check(run[1].BestSegmentTime.RealTime==TimeSpan.FromSeconds(62),"new gold is recorded");
-        Check(run[0].SegmentHistory.Count==1,"segment history grows");
+        Check(run[0].SegmentHistory.ContainsKey(1) && run[0].SegmentHistory[1].RealTime==TimeSpan.FromSeconds(58),"segment history grows (key 0 is the PB seed LiveSplit adds on load)");
         Check(recorder.Note==Texts.T("recorder.saved",Path.GetFileName(target)),"saving is reported");
         // A reset attempt: counted, no PB change.
         recorder.Observe(Snap("a3","Running",1,new long?[]{70,null,null},new long?[]{58,120,190},new long?[]{55,62,60},90),1);

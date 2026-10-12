@@ -161,7 +161,24 @@ public static class LobbyTests {
         public bool JoinInvite(string text) { string s,r,k;if(!Invite.TryParse(text,out s,out r,out k))return false;lastFailure=null;invite=text;lobby=LobbyState.FromLegacy(s,r,"viewer",k,"");return true; }
         public void Reconnect() { }
         public void Leave() { leaves++;if(role=="host" && lobby!=null && lobby.name!=null) last=lobby;lobby=null;connected=false;stopReason=null;lastFailure=null; }
+        public string warn;public string SaveWarning { get { return warn; } }
         public void ExportDiagnostics(IWin32Window owner) { }
+    }
+    // Stands in for an autosplitter component: its type name is enough for IsAutoSplitter.
+    sealed class FakeAutoSplit : LiveSplit.UI.Components.IComponent {
+        public string ComponentName { get { return "AutoSplit fake"; } }
+        public float HorizontalWidth { get { return 10; } } public float MinimumWidth { get { return 10; } }
+        public float VerticalHeight { get { return 10; } } public float MinimumHeight { get { return 10; } }
+        public float PaddingTop { get { return 0; } } public float PaddingBottom { get { return 0; } }
+        public float PaddingLeft { get { return 0; } } public float PaddingRight { get { return 0; } }
+        public IDictionary<string,Action> ContextMenuControls { get { return null; } }
+        public void DrawHorizontal(System.Drawing.Graphics g,LiveSplit.Model.LiveSplitState s,float height,System.Drawing.Region clip) { }
+        public void DrawVertical(System.Drawing.Graphics g,LiveSplit.Model.LiveSplitState s,float width,System.Drawing.Region clip) { }
+        public Control GetSettingsControl(LiveSplit.UI.LayoutMode mode) { return null; }
+        public System.Xml.XmlNode GetSettings(System.Xml.XmlDocument doc) { return doc.CreateElement("Settings"); }
+        public void SetSettings(System.Xml.XmlNode settings) { }
+        public void Update(LiveSplit.UI.IInvalidator invalidator,LiveSplit.Model.LiveSplitState state,float width,float height,LiveSplit.UI.LayoutMode mode) { }
+        public void Dispose() { }
     }
     static readonly BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
     static Control Find(Control parent,string name){foreach(Control c in parent.Controls){if(c.Name==name)return c;var child=Find(c,name);if(child!=null)return child;}return null;}
@@ -285,6 +302,26 @@ public static class LobbyTests {
             Check(legacy.invite!=null && legacy.lobby!=null,"valid invitation is handed to the session");
             w.Close();
         }
+        // A session that cannot save shows its warning permanently, not only after creating.
+        var warned=new FakeSession();
+        using(var w=new CoopWindow(warned,null,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"create")));
+            Check(!Shown(Find(w,"saveWarning")),"no save warning while saving works");
+            warned.warn=Texts.T("local.saveFailed","disk full");Pump(()=>Shown(Find(w,"saveWarning")));
+            Check(Find(w,"saveWarning").Text==warned.warn && Find(w,"saveWarning").ForeColor==System.Drawing.Color.Firebrick,"the window shows the session's save warning");
+            warned.warn=null;Pump(()=>!Shown(Find(w,"saveWarning")));
+            w.Close();
+        }
+        // An invitation cannot be used while a join is pending.
+        var pendingViewer=new FakeSession{role="viewer"};
+        using(var w=new CoopWindow(pendingViewer,null,create,list)) {
+            w.Show();var items=(ListView)Find(w,"lobbyList");Pump(()=>items.Items.Count==2 && items.Items[0].Tag is LobbyInfo);
+            items.Items[0].Selected=true;Pump(()=>Find(w,"lobbyName").Text=="rvgang");
+            Click(Find(w,"join"));Pump(()=>pendingViewer.used!=null);
+            Find(w,"invite").Text="lscoop:1:wss://relay.example/coop/abc#"+new string('v',32);Click(Find(w,"joinInvite"));
+            Check(pendingViewer.invite==null,"an invitation is ignored while a join is pending");
+            w.Close();
+        }
         // Optional profile section is shown above the lobby.
         var profile=new Label{Name="profileMarker",Text="profile"};
         using(var w=new CoopWindow(new FakeSession(),profile,create,none)) { w.Show();Pump(()=>Shown(Find(w,"profileMarker")));Check(true,"profile section is embedded");w.Close(); }
@@ -386,6 +423,68 @@ public static class LobbyTests {
         using(var component=new CoopComponent(NewState(),share2)) {
             component.SetSettings(Xml("<Version>1</Version><Address>wss://relay.example/coop</Address><Room>oldroom2</Room><Role>host</Role><ProtectedKey>"+LocalState.Protect(new string('k',43))+"</ProtectedKey><ProtectedInviteKey></ProtectedInviteKey>"));
             Check(component.ShareText==null,"a legacy host room without an invitation key has nothing to share");
+        }
+        // Connect records the specific reason, and the status keeps it.
+        var asState=NewState();asState.Layout.LayoutComponents.Add(new LiveSplit.UI.Components.LayoutComponent("x.dll",new FakeAutoSplit()));
+        string asPath=Path.Combine(work,"as-local.json");if(File.Exists(asPath)) File.Delete(asPath);
+        using(var component=new CoopComponent(asState,asPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            var viaAs=new LobbyGrant { server=relay,name=grant.name,roomId=grant.roomId,viewerKey=grant.viewerKey,locked=true };
+            Check(component.UseLobby(viaAs,null)==null && component.Lobby==null && component.LastFailure=="autosplitter","an autosplitter blocks the join with its own code: "+component.LastFailure);
+            Check(component.StatusLine==Texts.T("status.autosplitter"),"the autosplitter status is kept: "+component.StatusLine);
+            Check(CoopWindow.Explain("autosplitter")==Texts.T("status.autosplitter") && CoopWindow.Explain("key_unreadable")==Texts.T("lobby.keyUnreadable"),"the new codes are explained");
+        }
+        string keyPath=Path.Combine(work,"key-local.json");
+        var broken=LobbyState.From(grant,"viewer",null);broken.protectedViewerKey="AAAA";
+        new LocalState { lobby=broken }.Save(keyPath);
+        var keyState=NewState();
+        using(var component=new CoopComponent(keyState,keyPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            component.Update(null,keyState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(component.LastFailure=="key_unreadable" && component.StatusLine==Texts.T("lobby.keyUnreadable"),"an unreadable key is recorded and shown: "+component.LastFailure+" / "+component.StatusLine);
+        }
+        // Save failures are never silent: leave, reopen and the viewer confirmation report them too.
+        string stuck=Path.Combine(work,"stuck-folder");File.WriteAllText(stuck,"x");
+        string stuckPath=Path.Combine(stuck,"coop-local.json");
+        using(var component=new CoopComponent(NewState(),stuckPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            Check(component.SaveWarning==null,"no warning before anything failed");
+            component.UseLobby(grant,"banane");
+            Check(component.SaveWarning!=null && component.SaveWarning.StartsWith(Texts.T("local.saveFailed","").Substring(0,20)),"a failed save leaves a warning: "+component.SaveWarning);
+            component.Leave();component.ReopenLast();
+            Check(component.Lobby!=null && component.SaveWarning!=null,"reopen keeps reporting the failed save");
+        }
+        using(var component=new CoopComponent(NewState(),stuckPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            component.UseLobby(grant,"banane");
+            component.Leave();
+            Check(component.SaveWarning!=null,"leaving with an unwritable file warns");
+        }
+        var stuckViewer=NewState();
+        using(var component=new CoopComponent(stuckViewer,stuckPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            component.UseLobby(new LobbyGrant { server=relay,name=grant.name,roomId=grant.roomId,viewerKey=grant.viewerKey,locked=true },null);
+            Check(component.SaveWarning==null,"an unconfirmed join has not tried to save yet");
+            Check(Until(()=>{component.Update(null,stuckViewer,200,22,LiveSplit.UI.LayoutMode.Vertical);return component.Connected && component.SaveWarning!=null;}),"a viewer join that cannot be saved warns after confirmation");
+            Check(component.Lobby!=null,"the confirmed lobby keeps working");
+        }
+        string okPath=Path.Combine(work,"ok-local.json");if(File.Exists(okPath)) File.Delete(okPath);
+        using(var component=new CoopComponent(NewState(),okPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            component.UseLobby(grant,"banane");
+            Check(component.SaveWarning==null,"a working save has no warning");
+        }
+        // A role change forgets an unconfirmed lobby of the old role instead of orphaning it.
+        string orphanPath=Path.Combine(work,"orphan-local.json");if(File.Exists(orphanPath)) File.Delete(orphanPath);
+        var orphanState=NewState();
+        using(var component=new CoopComponent(orphanState,orphanPath)) {
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            component.UseLobby(new LobbyGrant { server=relay,name=grant.name,roomId=grant.roomId,viewerKey=grant.viewerKey,locked=true },null);
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            component.Update(null,orphanState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            component.SetSettings(Xml("<Version>2</Version><Role>viewer</Role>"));
+            component.Update(null,orphanState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(component.Lobby==null && !component.Connected && (!File.Exists(orphanPath) || LocalState.Load(orphanPath).lobby==null),"a role change forgets the unconfirmed lobby");
         }
         // A role change in the layout settings drops the connection of the old role.
         new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);

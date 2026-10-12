@@ -34,6 +34,7 @@ namespace LiveSplit.Coop {
             {"lobby.createdNoCopy",new[]{"Lobby {0} created. Copy name and password with the button below.","Lobby {0} erstellt. Name und Passwort mit dem Knopf unten kopieren."}},
             {"lobby.createdOpen",new[]{"Lobby {0} created without a password. The name is copied.","Lobby {0} ohne Passwort erstellt. Der Name ist kopiert."}},
             {"lobby.createdOpenNoCopy",new[]{"Lobby {0} created without a password. Copy the name with the button below.","Lobby {0} ohne Passwort erstellt. Den Namen mit dem Knopf unten kopieren."}},
+            {"local.saveFailed",new[]{"Could not save the coop settings ({0}). Changes are lost when LiveSplit closes.","Coop-Einstellungen konnten nicht gespeichert werden ({0}). \u00c4nderungen gehen beim Schlie\u00dfen von LiveSplit verloren."}},
             {"lobby.saveFailed",new[]{"The lobby works now but could not be saved ({0}). It will be gone after LiveSplit closes.","Die Lobby funktioniert jetzt, konnte aber nicht gespeichert werden ({0}). Nach dem Schlie\u00dfen von LiveSplit ist sie weg."}},
             {"lobby.slow",new[]{"Still connecting... the lobby may be full or the server unreachable.","Verbinde noch... Die Lobby ist evtl. voll oder der Server nicht erreichbar."}},
             {"lobby.copyInvite",new[]{"Copy invitation","Einladung kopieren"}},
