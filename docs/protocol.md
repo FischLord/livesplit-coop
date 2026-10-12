@@ -21,3 +21,15 @@ Viewers receive `{ "type":"state", "live":true|false, "ageMs":0, "snapshot":{...
 The component interpolates running time using a local monotonic stopwatch since receipt, plus the cached packet's age. It does not claim network-clock synchronization or subtract guessed latency. When stale, interpolation is bounded to 1.5 seconds and frozen. Paused/final times and all completed split values are never interpolated. Ticks update the viewer's clock without rebuilding its run. Missing heartbeats and slow clients are disconnected; application `ping` gets `pong` and WebSocket ping/pong checks transport liveness. Clients ping every five seconds and reconnect when nothing arrives for 15 seconds (10 seconds before `ready`).
 
 The relay retains only the latest snapshot per configured room in memory, even after a host disconnect, until another snapshot replaces it or the service restarts. It does not write run data to disk, execute commands, accept arbitrary filenames or retrieve URLs supplied by clients.
+
+## Lobbies (Cloudflare relay)
+
+A lobby is a room with a chosen name. The WebSocket protocol is unchanged (v3); only creation differs.
+
+- Name: 3–32 characters `[a-z0-9_-]`; the relay trims and lowercases. Room ID: `lobby_<name>`.
+- Viewer key: derived by the client, `base64url(PBKDF2-HMAC-SHA256(password, "livesplit-coop-lobby:v1:" + name, 100000, 32 bytes))`, no padding. An empty password is allowed. The password never leaves the client.
+- `POST /lobbies` with `{"name","viewerKey","public","locked"}` (max. 1 KiB, no `Origin` header) → `201 {"roomId","hostKey","idleExpiryDays"}`; `409` name taken; `400` invalid; `429`/`503` as for `/rooms`.
+- `GET /lobbies` → `200 {"lobbies":[{"name","locked","hostOnline","viewers","game","category","label","updated"}]}`: public lobbies active within 24 h, hosts online first, at most 100. `label` is the host snapshot's optional `profileLabel`.
+- Ten failed logins within 60 s from one address lock that address out of that room for the rest of the window (`1008 Too many attempts`), regardless of the key.
+- Lobbies expire like rooms (7 days unused); the name becomes free again.
+- Relays without lobby support answer `404` to `/lobbies`; clients fall back to invitations.
