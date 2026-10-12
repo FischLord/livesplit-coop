@@ -52,9 +52,12 @@ Raum-ID = `lobby_<name>`; WebSocket-Pfad wie bisher `/coop/<raum-id>`, Protokoll
 Der Raum meldet: Erstellen, Host verbunden/getrennt, Viewerzahl, Strukturänderung des Snapshots
 (Spiel, Kategorie, `profileLabel`; höchstens alle 10 s), Ablauf → Eintrag entfernen.
 
-**Fehlversuche.** Neues Rate-Limit-Binding `AUTH_LIMIT` (10 Fehlversuche/min pro IP). Der Worker
-reicht `CF-Connecting-IP` als Header an den Raum; der Raum merkt sie im Socket-Attachment und
-zählt nur fehlgeschlagene `hello`. Bei Überschreitung: Close `1008 "Too many attempts"`.
+**Fehlversuche.** Der Worker reicht `CF-Connecting-IP` als `X-Coop-IP` an den Raum (ein vom Client
+gesendeter Header wird überschrieben); der Raum merkt sie im Socket-Attachment. Jeder Raum zählt
+fehlgeschlagene `hello` pro IP in seinem Storage (`fail:<ip>`, Fenster 60 s). Ab 10 Fehlversuchen
+wird diese IP **vor** der Schlüsselprüfung mit `1008 "Too many attempts"` abgewiesen, auch mit
+richtigem Passwort – sonst könnte ein Angreifer den Treffer trotzdem erkennen. (Ein Rate-Limit-Binding
+eignet sich nicht, weil es sich nicht abfragen lässt, ohne zu zählen.)
 
 **Ablauf.** Wie bisher 7 Tage ohne Nutzung → Lobby gelöscht, Name wieder frei.
 
