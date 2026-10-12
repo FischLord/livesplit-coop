@@ -104,3 +104,14 @@ test('lobbies: a client cannot pick its own address header', async () => {
   const [, reason] = await closed(await client(made.roomId, 'viewer', key('v')));
   assert.match(reason, /Too many attempts/, 'spoofed headers must not spread failures over fake addresses');
 });
+
+test('lobbies: the host learns how many viewers follow it', async () => {
+  const made = await (await create({ name: unique('pe'), viewerKey: key('v'), public: false, locked: true })).json();
+  const host = await client(made.roomId, 'host', made.hostKey); await host.next('ready');
+  assert.equal((await host.next('peers')).viewers, 0);
+  const viewer = await client(made.roomId, 'viewer', key('v')); await viewer.next('ready');
+  assert.equal((await host.next('peers')).viewers, 1);
+  viewer.close();
+  assert.equal((await host.next('peers')).viewers, 0);
+  host.close();
+});

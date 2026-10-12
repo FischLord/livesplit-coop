@@ -141,14 +141,19 @@ export class Room extends DurableObject {
     return true;
   }
 
+  // Tells the host how many viewers follow it. Older clients ignore unknown message types.
+  notifyHost(leaving = null) {
+    const host = this.host();
+    if (host) host.ws.send(JSON.stringify({ type: 'peers', viewers: this.viewers().filter(s => s.ws !== leaving).length }));
+  }
   directory() { return this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName('global')); }
   // Publishes this lobby's public entry. Private lobbies and plain rooms are never listed.
-  async report() {
+  async report(leaving = null) {
     const lobby = this.meta?.lobby;
     if (!lobby?.public) return;
     const s = this.snapshot;
     await this.directory().put(lobby.name, {
-      name: lobby.name, locked: lobby.locked, hostOnline: !!this.host(), viewers: this.viewers().length,
+      name: lobby.name, locked: lobby.locked, hostOnline: !!this.host(), viewers: this.viewers().filter(s => s.ws !== leaving).length,
       game: s?.game ?? null, category: s?.category ?? null,
       label: typeof s?.profileLabel === 'string' ? s.profileLabel.slice(0, 60) : null, updated: Date.now()
     });
@@ -230,6 +235,7 @@ export class Room extends DurableObject {
       previous.ws.close(4001, 'Replaced by a newer host connection');
     }
     ws.send(JSON.stringify({ type: 'ready', v: PROTOCOL, role: m.role }));
+    this.notifyHost();
     await this.report();
     if (m.role === 'viewer') {
       const host = this.host();
@@ -257,7 +263,8 @@ export class Room extends DurableObject {
     if (a.role === 'host' || a.role === 'viewer' || a.role === 'gone') {
       await this.touch();
       await this.wakeAt(Date.now() + IDLE_MS);
-      await this.report();
+      if (a.role === 'viewer') this.notifyHost(ws);
+      await this.report(ws);
     }
   }
 
