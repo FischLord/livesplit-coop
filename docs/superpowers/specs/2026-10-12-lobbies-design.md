@@ -7,7 +7,7 @@ Stand: 2026-10-12 · Branch `feature/lobbies` · Basis: Graph/Category-Patch v4 
 Coop ohne kryptische Einladungslinks und ohne CMD-Fragen:
 
 1. **Lobbys** mit Namen und optionalem Passwort, wahlweise öffentlich gelistet oder privat.
-2. **Ein Fenster „Coop…“ im Timer** für Profilwahl, Lobby und Status.
+2. **Ein Fenster „Coop…“ im Timer** nur für Lobby und Status. Spiel-, Modus- und Profilwahl gehören nicht dazu.
 3. **Generisch:** Die Komponente kennt kein Spiel. Spielwissen steckt in einem optionalen
    Daten-Paket (`coop-profiles.json`). RV There Yet? ist das erste Paket.
 4. **Viewer speichern Splits:** Mitspieler zeichnen mitverfolgte Versuche in ihre eigenen
@@ -22,7 +22,7 @@ meldet die GUI dort „Server unterstützt keine Lobbys“ und bietet den Einlad
 | Teil | Ort | Inhalt |
 |---|---|---|
 | Relay (Cloudflare) | `relay-cloudflare/` | Räume wie bisher + Lobby-Endpunkte + Verzeichnis + Fehlversuchs-Limit |
-| Coop-Komponente | `component/` | Verbindung, Snapshot/Mirror, Lobby-Client, Coop-Fenster, Profil-Katalog, Profil-Wechsel, Viewer-Recorder |
+| Coop-Komponente | `component/` | Verbindung, Snapshot/Mirror, Lobby-Client, Coop-Fenster (nur Lobby), Profil-Katalog (`ProfilePack`, `ProfilePreparer`), Viewer-Recorder |
 | Spiel-Paket | z. B. `LS RVtheer/Timer/` | `coop-profiles.json`, Layouts, Autosplitter, Splits-Vorlagen, schlanker Starter |
 
 Keine Zeile Spielwissen in `component/`. `RunProfile.cs` (RV-Pfadlogik) wird durch den
@@ -74,8 +74,9 @@ leer) und nicht mehr ins Layout geschrieben. „Save Layout“ ist für Coop nie
 
 ### 3.2 Coop-Fenster (Rechtsklick → „Coop…“)
 Ersetzt Host…, Join…, Copy invite, Reconnect, Disconnect. Bereiche:
-- **Profil** (nur mit Paket): eine Auswahlliste je Dimension + „Profil laden“. Gesperrt während
-  ein Run läuft. In der Viewer-Kopie nur Anzeige „Profil kommt vom Host: <label>“.
+- Das Fenster ist spielunabhängig und nur für die Lobby da. Es gibt keine Profilwahl und keinen
+  Profilwechsel im Timer. Das Profil-Label des Hosts (Snapshot `profileLabel`) steht in der
+  Lobby-Info, z. B. „rvgang · privat · Duo / Fullgame“; Viewer sehen so, was der Host läuft.
 - **Lobby, verbunden:** Name · öffentlich/privat · Rolle · Mitspieler online · Status-Punkt;
   „Passwort kopieren“ (Host), „Lobby verlassen“.
 - **Lobby, nicht verbunden:** in der Viewer-Kopie *Beitreten* (öffentliche Liste + Aktualisieren,
@@ -86,7 +87,7 @@ Ersetzt Host…, Join…, Copy invite, Reconnect, Disconnect. Bereiche:
   „Diagnose exportieren“.
 - Texte Deutsch/Englisch nach `CultureInfo.CurrentUICulture`.
 
-Beim Start und nach jedem Profilwechsel verbindet die Komponente automatisch mit der Lobby aus
+Beim Start verbindet die Komponente automatisch mit der Lobby aus
 `coop-local.json`. Statuszeile im Layout: `Coop: rvgang · Host · 2 online` bzw.
 `Coop: rvgang · folgt Host`, rechts weiter das Profil-Label.
 
@@ -113,17 +114,16 @@ Gesucht neben `LiveSplit.exe` und in bis zu drei Elternordnern; Pfade darin rela
 }
 ```
 
-**Profil laden** (`ProfileSwitcher`):
-1. LiveSplits eigene Abfrage für ungespeicherte Splits (`WarnUserAboutSplitsSave`); Abbruch → nichts tun.
-2. `ProfilePreparer`: Layout-ScriptPath auf Paket-Autosplitter setzen, Start/Split aktiv,
-   `LayoutPath` und Variablen in die LSS schreiben (Variablen mit Rand-Leerzeichen als CDATA),
-   RecentSplits in `settings.cfg` pflegen. Bestehende Zeiten werden nie verändert.
-3. `LoadRunFromFile` + `OpenLayoutFromFile` per Reflection auf dem `TimerForm`.
-4. `lastProfile` speichern. Die neue Komponente verbindet automatisch neu.
-Fehlt eine Reflection-Methode: Rückfall auf Neustart (`LiveSplit.exe -s … -l …`, aktuelles Fenster schließt).
+**Profilwahl ist Aufgabe des Spiel-Pakets**, nicht der Komponente. Der Starter des Pakets
+(RV: Start-CMD / `Start-Timer.ps1`) fragt je Dimension aus `coop-profiles.json` (Enter = zuletzt
+benutzte Auswahl aus `lastProfile`), löst das Profil mit `ProfilePack.Resolve` auf, ruft
+`ProfilePreparer.Prepare` (Layout-ScriptPath auf Paket-Autosplitter, Start/Split aktiv, `LayoutPath`
+und Variablen in die LSS, Variablen mit Rand-Leerzeichen als CDATA; Zeiten bleiben unverändert) und
+`RememberInSettings` auf, speichert `lastProfile` und startet LiveSplit. Gibt es für die Kombination
+kein Profil, fragt der Starter erneut. Ein Profilwechsel im laufenden Timer entfällt (LiveSplits
+`LoadRunFromFile` übernimmt den Run nicht verlässlich); wer wechseln will, startet neu.
 
-Der Starter `Start-Timer.ps1` wird schlank: ausstehende Updates anwenden, beim ersten Start
-`ProfilePreparer` für das erste Profil über die DLL aufrufen, LiveSplit öffnen. Keine Fragen mehr.
+Der Viewer-Starter stellt keine Fragen. Die Lobby wird im Timer über „Coop…“ gewählt.
 Ohne Paket verhält sich die Komponente wie bisher (Splits über LiveSplits „Open Splits“).
 
 ### 3.4 Snapshot-Erweiterung (optional, abwärtskompatibel)
@@ -154,7 +154,6 @@ Felder unverändert weiter; alte Viewer ignorieren sie.
 | Zu viele Versuche | „Zu viele Fehlversuche. Eine Minute warten.“ |
 | Relay ohne `/lobbies` (404) | „Server unterstützt keine Lobbys – Einladungscode unter Erweitert.“ |
 | Netzwerk weg | automatischer Reconnect wie bisher; Status „verbinde neu…“ |
-| Profilwechsel während Run | Button gesperrt, Hinweis „Erst Run beenden oder resetten.“ |
 | Recorder kann nicht schreiben | Versuch nach `Pending/`, Hinweis im Fenster, Diagnose-Eintrag |
 
 ## 5. Tests
@@ -165,7 +164,7 @@ Felder unverändert weiter; alte Viewer ignorieren sie.
   `coop-local.json`-Roundtrip + Layout-Migration, Katalog laden/auflösen, `ProfilePreparer`
   (CDATA, ScriptPath, keine Zeitänderung), Recorder (abgeschlossen, Reset, Gold, PB, Host-PB-Übernahme,
   Sperre), Dialog-Logik mit injizierbarem Lobby-Client.
-- **Nativ:** echter LiveSplit-Prozess: Profilwechsel per Reflection (Host bleibt in Lobby, Viewer folgt),
+- **Nativ:** echter LiveSplit-Prozess (Host bleibt in Lobby, Viewer folgt),
   Host+2 Viewer über lokalen `wrangler dev`.
 - **Paket:** alle 48 RV-Profile auflösbar, alte PB-Zeiten (Mabutts Duo/Trio) unverändert.
 
