@@ -70,7 +70,7 @@ public static class ProfileTests {
         Check(pack.ForSplits(null)==null && pack.ForSplits(Path.Combine(work,"x.lss"))==null,"unknown splits give no profile");
         Check(pack.Match("Test Game","Map A Any%",new Dictionary<string,string>{{"Number of Players","Duo"},{"Glitch Type","Glitched"}})==g,"match tolerates trimmed variable values");
         Check(pack.Match("Other","Map A Any%",new Dictionary<string,string>{{"Number of Players","Duo"},{"Glitch Type","Glitched "}})==null,"match requires the game");
-        Check(pack.dimensions[0].Label=="Map","dimension label follows the language");
+        Check(pack.dimensions[0].DisplayLabel=="Map","dimension label follows the language");
         foreach(var bad in new[]{
             PackJson.Replace("\"version\": 1","\"version\": 2"),
             PackJson.Replace("\"splits\": \"Splits/A/NMG.lss\"","\"splits\": \"../outside.lss\""),

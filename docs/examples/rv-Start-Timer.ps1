@@ -42,13 +42,9 @@ try {
             while(!$profile) {
                 $selection=New-Object 'System.Collections.Generic.Dictionary[string,string]'
                 foreach($d in $pack.dimensions) {
-                    # PackDimension has both a 'label' field and a 'Label' property, which PowerShell's member lookup cannot handle: read the fields directly.
-                    $type=[LiveSplit.Coop.PackDimension]
-                    $dimId=$type.GetField('id').GetValue($d)
-                    $options=$type.GetField('options').GetValue($d)
-                    $labels=$type.GetField('label').GetValue($d)
-                    $title=$dimId
-                    if($labels -and $labels.ContainsKey('de')){$title=$labels['de']}
+                    $dimId=$d.id
+                    $options=$d.options
+                    $title=$d.DisplayLabel
                     $default=1
                     if($last){$index=0;foreach($o in $options){$index++;if($o.id -eq $last.select[$dimId]){$default=$index}}}
                     $items=@($options | ForEach-Object {$_.label})

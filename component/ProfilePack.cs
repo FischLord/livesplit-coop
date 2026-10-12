@@ -10,7 +10,7 @@ namespace LiveSplit.Coop {
         public string id;
         public Dictionary<string,string> label;
         public List<PackOption> options;
-        public string Label { get { string value;return label!=null && label.TryGetValue(Texts.German?"de":"en",out value)?value:id; } }
+        public string DisplayLabel { get { string value;return label!=null && label.TryGetValue(Texts.German?"de":"en",out value)?value:id; } }
     }
     public sealed class PackProfile {
         public Dictionary<string,string> select,variables;
