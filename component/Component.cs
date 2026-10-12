@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Windows.Forms;
@@ -38,6 +39,9 @@ namespace LiveSplit.Coop {
         ProfilePack pack;
         bool packLoaded;
         string hostLabel;
+        AttemptRecorder recorder;
+        IDisposable hostLock;
+        string lockedPath;
         bool autoTried;
         // A viewer lobby is only written to coop-local.json once the relay accepted it; until then it lives in memory.
         bool unconfirmed;
@@ -156,6 +160,7 @@ namespace LiveSplit.Coop {
             if((connection==null || role!="viewer") && state.CurrentPhase!=TimerPhase.NotRunning) return Texts.T("viewer.stopTimer");
             return null;
         }
+        public string Note { get { return recorder==null?null:recorder.Note; } }
         public string LastFailure { get { return lastFailure; } }
         // Set while the last write of coop-local.json failed; cleared by the next successful write.
         public string SaveWarning { get { return saveWarning; } }
@@ -240,7 +245,10 @@ namespace LiveSplit.Coop {
                 string key;
                 try { key=LocalState.Unprotect(role=="host"?lobby.protectedHostKey:lobby.protectedViewerKey); }
                 catch(CryptographicException) { connectFailure="key_unreadable";SetStatus(Texts.T("lobby.keyUnreadable"),Color.IndianRed);return; }
-                if(role=="viewer") { RequireNoAutoSplitter(state);mirror=new Mirror(state); }
+                if(role=="viewer") { RequireNoAutoSplitter(state);mirror=new Mirror(state);
+                    // The recorder outlives Disconnect so its note stays visible; every viewer connect starts a fresh one.
+                    string splitsRoot=Pack!=null?Pack.FullPath("Splits/Coop"):Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Splits","Coop");
+                    recorder=new AttemptRecorder(new ViewerLibrary(Pack,splitsRoot)); }
                 connection=new RelayConnection(lobby.server,lobby.roomId,role,key);
                 connection.Start();dirty=true;hasSnapshot=false;hostLabel=null;frozenElapsed=-1;publishedGeneration=-1;publishedStructure=null;
                 SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod);
@@ -260,6 +268,15 @@ namespace LiveSplit.Coop {
         static Color PhaseColor(RelayPhase phase) { return phase==RelayPhase.Stopped?Color.IndianRed:Color.Goldenrod; }
         public void Update(IInvalidator invalidator,LiveSplitState ignored,float width,float height,LayoutMode mode) {
             if(!autoTried) { autoTried=true;if(Lobby!=null) Connect(); else SetStatus(Texts.T("status.notConnected"),Color.Gray); }
+            // A host copy marks its open splits so a viewer copy on this PC does not write into them.
+            string loaded=Role=="host"?state.Run.FilePath:null;
+            if(!string.Equals(loaded,lockedPath,StringComparison.OrdinalIgnoreCase)) {
+                ReleaseHostLock();
+                lockedPath=loaded;
+                if(!string.IsNullOrEmpty(loaded) && File.Exists(loaded)) {
+                    try { hostLock=HostLock.Hold(loaded); } catch(Exception e) { CoopDiagnostics.Error("host_lock",e); }
+                }
+            }
             if(watch.ElapsedMilliseconds-lastRainbowUpdate>=100) {
                 lastRainbowUpdate=watch.ElapsedMilliseconds;
                 if(rainbowGraph.Update(state) && state.Form!=null)state.Form.Invalidate();
@@ -297,6 +314,10 @@ namespace LiveSplit.Coop {
                         var delivery=connection.Take();
                         if(delivery!=null) {
                             if(delivery.structural) { mirror.Adopt(delivery.snapshot);hostLabel=delivery.snapshot.profileLabel;TraceRun("snapshot_applied"); } else mirror.Advance(delivery.snapshot);
+                            if(recorder!=null) {
+                                try { recorder.Observe(delivery.snapshot,connection.Generation); }
+                                catch(Exception e) { CoopDiagnostics.Error("viewer_recorder",e); }
+                            }
                             hasSnapshot=true;lastReceived=watch.ElapsedMilliseconds;
                             initialAge=delivery.ageMs;frozenElapsed=delivery.live?-1:Math.Min(initialAge,1500);
                         }
@@ -371,8 +392,9 @@ namespace LiveSplit.Coop {
             // Until the first Update connects automatically, say what is about to happen.
             if(!autoTried && connection==null) { if(Lobby!=null) SetStatus(LobbyTitle()+" · "+Texts.T("status.connecting"),Color.Goldenrod); else SetStatus(Texts.T("status.notConnected"),Color.Gray); }
         }
+        void ReleaseHostLock() { if(hostLock!=null) { hostLock.Dispose();hostLock=null; } }
         public void Dispose() {
-            Disconnect();state.OnStart-=Started;state.OnSplit-=Split;state.OnUndoSplit-=Undo;state.OnSkipSplit-=Skip;
+            Disconnect();ReleaseHostLock();state.OnStart-=Started;state.OnSplit-=Split;state.OnUndoSplit-=Undo;state.OnSkipSplit-=Skip;
             state.OnPause-=Paused;state.OnResume-=Resumed;state.OnReset-=Reset;
             CoopDiagnostics.Write("component_disposed",new { component=diagnosticId });
             settings.Dispose();font.Dispose();

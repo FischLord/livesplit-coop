@@ -161,6 +161,7 @@ public static class LobbyTests {
         public bool JoinInvite(string text) { string s,r,k;if(!Invite.TryParse(text,out s,out r,out k))return false;lastFailure=null;invite=text;lobby=LobbyState.FromLegacy(s,r,"viewer",k,"");return true; }
         public void Reconnect() { }
         public void Leave() { leaves++;if(role=="host" && lobby!=null && lobby.name!=null) last=lobby;lobby=null;connected=false;stopReason=null;lastFailure=null; }
+        public string note;public string Note { get { return note; } }
         public string warn;public string SaveWarning { get { return warn; } }
         public void ExportDiagnostics(IWin32Window owner) { }
     }
@@ -289,6 +290,8 @@ public static class LobbyTests {
             Click(Find(w,"leave"));w.SlowJoinMs=15000;
             viewer.used=null;Click(Find(w,"join"));Pump(()=>viewer.used!=null);viewer.connected=true;
             Pump(()=>Shown(Find(w,"leave")));
+            viewer.note="Attempt saved to Duo.lss.";Pump(()=>Find(w,"note").Text=="Attempt saved to Duo.lss." && Shown(Find(w,"note")));
+            Check(true,"the window shows the recorder note");
             Check(!Shown(Find(w,"copyPassword")) && Find(w,"copyPassword")==null,"viewers cannot copy a password");
             w.Close();
         }
@@ -486,6 +489,16 @@ public static class LobbyTests {
             component.Update(null,orphanState,200,22,LiveSplit.UI.LayoutMode.Vertical);
             Check(component.Lobby==null && !component.Connected && (!File.Exists(orphanPath) || LocalState.Load(orphanPath).lobby==null),"a role change forgets the unconfirmed lobby");
         }
+        // A host copy locks the splits it has loaded, and lets go again.
+        string lockedSplits=Path.Combine(work,"locked.lss");File.WriteAllText(lockedSplits,"x");
+        var lockState=NewState();lockState.Run.FilePath=lockedSplits;
+        using(var component=new CoopComponent(lockState,Path.Combine(work,"lock-local.json"))) {
+            component.SetSettings(Xml("<Version>2</Version><Role>host</Role>"));
+            Check(!HostLock.IsHeld(lockedSplits),"nothing is locked before the first update");
+            component.Update(null,lockState,200,22,LiveSplit.UI.LayoutMode.Vertical);
+            Check(HostLock.IsHeld(lockedSplits),"a host copy locks its open splits");
+        }
+        Check(!HostLock.IsHeld(lockedSplits) && !File.Exists(HostLock.PathFor(lockedSplits)),"disposing the host copy releases the lock");
         // A role change in the layout settings drops the connection of the old role.
         new LocalState { lobby=LobbyState.From(grant,"host","banane") }.Save(path);
         var roleState=NewState();

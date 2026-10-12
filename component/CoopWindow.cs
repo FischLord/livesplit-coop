@@ -22,6 +22,7 @@ namespace LiveSplit.Coop {
         string LastLobbyName { get; }   // host: the lobby that was left last and can be reopened, or null
         void ReopenLast();
         string LastFailure { get; }     // why the last UseLobby/JoinInvite was turned down (StopReason code, "autosplitter", "key_unreadable" or "rejected"); null otherwise
+        string Note { get; }            // last split-saving note for viewers, or null
         string SaveWarning { get; }     // localized warning while coop-local.json cannot be written, else null
         string UseLobby(LobbyGrant grant,string password);   // null, or a warning to show (e.g. the lobby could not be saved)
         bool JoinInvite(string invite);
@@ -38,6 +39,7 @@ namespace LiveSplit.Coop {
         readonly FlowLayoutPanel current=Stack(),createPanel=Stack(),joinPanel=Stack(),advanced=Stack();
         readonly Label lobbyInfo=new Label { Name="lobbyInfo",AutoSize=true,MaximumSize=new Size(480,0) };
         readonly Label status=new Label { Name="status",AutoSize=true,MaximumSize=new Size(480,0) };
+        readonly Label note=new Label { Name="note",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.DimGray };
         readonly Label saveWarning=new Label { Name="saveWarning",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.Firebrick,Visible=false };
         readonly Label message=new Label { Name="message",AutoSize=true,MaximumSize=new Size(480,0),Margin=new Padding(0,6,0,0) };
         readonly TextBox name=new TextBox { Name="lobbyName",Width=230,MaxLength=32 };
@@ -58,7 +60,7 @@ namespace LiveSplit.Coop {
             AutoScaleMode=AutoScaleMode.Dpi;AutoSize=true;AutoSizeMode=AutoSizeMode.GrowAndShrink;MinimumSize=new Size(530,0);
             Controls.Add(body);
             if(profileSection!=null) { body.Controls.Add(Heading("section.profile"));body.Controls.Add(profileSection); }
-            body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);body.Controls.Add(saveWarning);
+            body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);body.Controls.Add(note);body.Controls.Add(saveWarning);
             BuildCurrent();
             if(session.Role=="host") BuildCreate(); else BuildJoin();
             body.Controls.Add(current);body.Controls.Add(createPanel);body.Controls.Add(joinPanel);body.Controls.Add(message);
@@ -133,6 +135,7 @@ namespace LiveSplit.Coop {
             bool has=session.Lobby!=null;
             current.Visible=has;createPanel.Visible=!has && session.Role=="host";joinPanel.Visible=!has && session.Role!="host";
             if(!busy) status.Text=session.StatusLine;
+            note.Text=session.Note ?? "";note.Visible=note.Text.Length>0;
             string warning=session.SaveWarning;saveWarning.Text=warning ?? "";saveWarning.Visible=warning!=null;
             Find("reconnect").Visible=has && !session.Connected && session.StopReason!=null && !pendingJoin;
             var lobby=session.Lobby;
