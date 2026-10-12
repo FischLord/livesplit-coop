@@ -5,8 +5,10 @@ using System.Xml;
 namespace LiveSplit.Coop {
     // Makes a profile's layout and splits ready to load. Never changes times, attempts or history.
     public static class ProfilePreparer {
-        public static void Prepare(ProfilePack pack,PackProfile profile,string role) {
+        // Returns whether the layout file's content changed (a loaded copy of it is then out of date).
+        public static bool Prepare(ProfilePack pack,PackProfile profile,string role) {
             string layoutPath=pack.FullPath(profile.layout),splitsPath=pack.FullPath(profile.splits);
+            string layoutBefore=File.ReadAllText(layoutPath);
             var layout=new XmlDocument();layout.Load(layoutPath);
             var coop=layout.SelectSingleNode("/Layout/Components/Component[Path='LiveSplit.Coop.dll']/Settings");
             if(coop==null) throw new InvalidDataException("The layout has no Coop component: "+layoutPath);
@@ -23,6 +25,7 @@ namespace LiveSplit.Coop {
                 }
             }
             Save(layout,layoutPath);
+            bool layoutChanged=File.ReadAllText(layoutPath)!=layoutBefore;
             var run=new XmlDocument();run.Load(splitsPath);
             var variables=run.SelectSingleNode("/Run/Metadata/Variables");
             if(variables==null) {
@@ -41,6 +44,7 @@ namespace LiveSplit.Coop {
             if(!string.IsNullOrEmpty(profile.category)) SetChild(run.DocumentElement,"CategoryName",profile.category);
             SetChild(run.DocumentElement,"LayoutPath",layoutPath);
             Save(run,splitsPath);
+            return layoutChanged;
         }
         // For starts outside LiveSplit: the profile becomes the most recent splits; registered autosplitters are turned off
         // because the layout owns the autosplitter (Edit Splits > Activate would add a second one).

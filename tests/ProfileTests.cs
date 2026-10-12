@@ -127,10 +127,16 @@ public static class ProfileTests {
     }
     // Stands in for LiveSplit's TimerForm: same private method names and signatures.
     public sealed class FakeForm {
-        public readonly List<string> calls=new List<string>();public bool allowSave=true;public LiveSplitState state;
+        public readonly List<string> calls=new List<string>();public bool allowSave=true,allowLayout=true,failLoad=false,wrongFile=false,failLayout=false;public LiveSplitState state;
         bool WarnUserAboutSplitsSave(){calls.Add("warn");return allowSave;}
-        void LoadRunFromFile(string path,TimingMethod? method,string hotkeys){calls.Add("run:"+path+":"+method+":"+hotkeys);state.Run.FilePath=path;}
-        public void OpenLayoutFromFile(string path){calls.Add("layout:"+path);state.Layout.FilePath=path;}
+        bool WarnUserAboutLayoutSave(bool canCancel){calls.Add("warnLayout");return allowLayout;}
+        IRun LoadRunFromFile(string path,TimingMethod? method,string hotkeys){
+            calls.Add("run:"+path+":"+method+":"+hotkeys);
+            if(failLoad) return null;
+            if(!wrongFile) state.Run.FilePath=path;
+            return state.Run;
+        }
+        public bool OpenLayoutFromFile(string path){calls.Add("layout:"+path);if(failLayout) return false;state.Layout.FilePath=path;return true;}
     }
     public sealed class OldForm { public readonly List<string> calls=new List<string>(); }
     static LiveSplitState NewState(){var run=new Run(new StandardComparisonGeneratorsFactory());run.Add(new Segment("Finish"));return new LiveSplitState(run,null,new LiveSplit.UI.Layout(),new LiveSplit.Options.LayoutSettings(),new LiveSplit.Options.Settings());}
@@ -141,12 +147,40 @@ public static class ProfileTests {
         var state=NewState();var form=new FakeForm{state=state};int commits=0;
         var result=ProfileSwitcher.Switch(state,form,pack,a,()=>commits++,(s,l)=>{throw new Exception("no restart expected");});
         Check(result==ProfileSwitcher.Result.Switched && commits==1,"switch succeeds and commits once");
-        Check(form.calls.SequenceEqual(new[]{"warn","run:"+pack.FullPath(a.splits)+":RealTime:Default","layout:"+pack.FullPath(a.layout)}),"warn, then splits, then layout: "+string.Join(" / ",form.calls.ToArray()));
+        Check(form.calls.SequenceEqual(new[]{"warn","warnLayout","run:"+pack.FullPath(a.splits)+":RealTime:Default","layout:"+pack.FullPath(a.layout)}),"warn, then splits, then layout: "+string.Join(" / ",form.calls.ToArray()));
         var prepared=new XmlDocument();prepared.Load(pack.FullPath(a.splits));
         Check(prepared.SelectSingleNode("/Run/LayoutPath").InnerText==pack.FullPath(a.layout),"profile is prepared before loading");
         form.calls.Clear();
         ProfileSwitcher.Switch(state,form,pack,pack.ByKey("a|g"),()=>commits++,null);
-        Check(form.calls.Count==2 && !form.calls.Any(c=>c.StartsWith("layout:")),"the same layout is not reloaded");
+        Check(form.calls.Count==3 && !form.calls.Any(c=>c.StartsWith("layout:")),"the same, unchanged layout is not reloaded");
+        // The same layout path is reloaded when the preparation changed the file (autosplitter settings).
+        string layoutFile=pack.FullPath(a.layout);
+        File.WriteAllText(layoutFile,File.ReadAllText(layoutFile).Replace("<Start>True</Start>","<Start>False</Start>"));
+        form.calls.Clear();
+        ProfileSwitcher.Switch(state,form,pack,pack.ByKey("a|g"),()=>commits++,null);
+        Check(form.calls.Any(c=>c=="layout:"+layoutFile),"a layout whose file was changed by the preparation is reloaded");
+        form.calls.Clear();
+        ProfileSwitcher.Switch(state,form,pack,pack.ByKey("a|g"),()=>commits++,null);
+        Check(!form.calls.Any(c=>c.StartsWith("layout:")),"once prepared, the layout is left alone again");
+        commits=2;
+        // Cancelling the layout question changes nothing either.
+        form.calls.Clear();form.allowLayout=false;
+        Check(ProfileSwitcher.Switch(state,form,pack,b,()=>commits++,null)==ProfileSwitcher.Result.Cancelled && form.calls.SequenceEqual(new[]{"warn","warnLayout"}) && commits==2,"cancelling the layout prompt changes nothing");
+        form.allowLayout=true;
+        // A run that did not load never opens the layout.
+        form.calls.Clear();form.failLoad=true;
+        Throws<InvalidOperationException>(()=>ProfileSwitcher.Switch(state,form,pack,b,()=>commits++,null),"splits that fail to load stop the switch");
+        Check(!form.calls.Any(c=>c.StartsWith("layout:")),"no layout is opened after the splits failed");
+        form.failLoad=false;form.wrongFile=true;form.calls.Clear();
+        Throws<InvalidOperationException>(()=>ProfileSwitcher.Switch(state,form,pack,pack.ByKey("a|nmg"),()=>commits++,null),"a different file than requested stops the switch");
+        Check(!form.calls.Any(c=>c.StartsWith("layout:")),"no layout is opened when the wrong splits are loaded");
+        form.wrongFile=false;form.failLayout=true;
+        Throws<InvalidOperationException>(()=>ProfileSwitcher.Switch(state,form,pack,b,()=>commits++,null),"a layout that fails to open is reported");
+        form.failLayout=false;commits=2;
+        // A commit that throws aborts before anything loads.
+        form.calls.Clear();
+        Throws<InvalidOperationException>(()=>ProfileSwitcher.Switch(state,form,pack,pack.ByKey("a|nmg"),()=>{throw new InvalidOperationException("save");},null),"a failing commit aborts the switch");
+        Check(!form.calls.Any(c=>c.StartsWith("run:")),"nothing loads after a failed commit");
         form.calls.Clear();form.allowSave=false;
         Check(ProfileSwitcher.Switch(state,form,pack,b,()=>commits++,null)==ProfileSwitcher.Result.Cancelled && form.calls.SequenceEqual(new[]{"warn"}) && commits==2,"cancelling the save prompt changes nothing");
         string[] restarted=null;
@@ -210,6 +244,6 @@ public static class ProfileTests {
             var section=new ProfileSection(pack,null,true,"Duo / Fullgame",false);form.Controls.Add(section);form.Show();Application.DoEvents();
             Check(Find(section,"dim_map")==null && Find(section,"profileFromHost").Text==Texts.T("profile.fromHost","Duo / Fullgame"),"viewers only see the host's profile");
         }
-        foreach(var key in new[]{"profile.load","profile.fromHost","profile.running","profile.missing","profile.current","profile.failed"}) Check(Texts.Has(key),"text exists: "+key);
+        foreach(var key in new[]{"profile.load","profile.fromHost","profile.running","profile.missing","profile.current","profile.failed","profile.useMenu","profile.saveFailed","profile.splitsNotLoaded","profile.layoutNotLoaded"}) Check(Texts.Has(key),"text exists: "+key);
     }
 }

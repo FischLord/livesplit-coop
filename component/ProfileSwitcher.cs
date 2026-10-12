@@ -18,20 +18,34 @@ namespace LiveSplit.Coop {
         public static Result Switch(LiveSplitState state,object form,ProfilePack pack,PackProfile profile,Action commit,Action<string,string> restart) {
             if(state.CurrentPhase!=TimerPhase.NotRunning) return Result.Running;
             var warn=Find(form,"WarnUserAboutSplitsSave",Type.EmptyTypes);
+            var warnLayout=Find(form,"WarnUserAboutLayoutSave",new[] { typeof(bool) });
             var loadRun=Find(form,"LoadRunFromFile",new[] { typeof(string),typeof(TimingMethod?),typeof(string) });
             var openLayout=Find(form,"OpenLayoutFromFile",new[] { typeof(string) });
+            // Both questions come first, so cancelling leaves everything as it was. OpenLayoutFromFile asks the layout question
+            // itself, but only after the splits are replaced; it asks nothing more once this one is answered.
             if(warn!=null && !(bool)Call(warn,form)) return Result.Cancelled;
-            ProfilePreparer.Prepare(pack,profile,"host");
+            if(warnLayout!=null && !(bool)Call(warnLayout,form,true)) return Result.Cancelled;
+            bool layoutChanged=ProfilePreparer.Prepare(pack,profile,"host");
             string splits=pack.FullPath(profile.splits),layout=pack.FullPath(profile.layout);
             if(commit!=null) commit();
             if(warn==null || loadRun==null || openLayout==null) {
                 CoopDiagnostics.Write("profile_restart",new { reason="timer_form_methods_missing" });
                 restart(splits,layout);return Result.Restarted;
             }
-            Call(loadRun,form,splits,(TimingMethod?)state.CurrentTimingMethod,string.IsNullOrEmpty(state.CurrentHotkeyProfile)?"Default":state.CurrentHotkeyProfile);
+            var loaded=Call(loadRun,form,splits,(TimingMethod?)state.CurrentTimingMethod,string.IsNullOrEmpty(state.CurrentHotkeyProfile)?"Default":state.CurrentHotkeyProfile) as IRun;
+            if(loaded==null || !SamePath(state.Run.FilePath,splits)) throw new InvalidOperationException(Texts.T("profile.splitsNotLoaded"));
             string current=state.Layout==null?null:state.Layout.FilePath;
-            if(string.IsNullOrEmpty(current) || !string.Equals(Path.GetFullPath(current),layout,StringComparison.OrdinalIgnoreCase)) Call(openLayout,form,layout);
+            // A layout that is already loaded is reloaded when the preparation changed it (autosplitter path and settings).
+            if(layoutChanged || !SamePath(current,layout)) {
+                if(warnLayout!=null && state.Layout!=null) state.Layout.HasChanged=false;
+                var opened=Call(openLayout,form,layout);
+                if(!(opened is bool) || !(bool)opened) throw new InvalidOperationException(Texts.T("profile.layoutNotLoaded"));
+            }
             return Result.Switched;
+        }
+        static bool SamePath(string a,string b) {
+            if(string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            try { return string.Equals(Path.GetFullPath(a),Path.GetFullPath(b),StringComparison.OrdinalIgnoreCase); } catch(ArgumentException) { return false; }
         }
         static MethodInfo Find(object form,string name,Type[] parameters) { return form==null?null:form.GetType().GetMethod(name,Any,null,parameters,null); }
         static object Call(MethodInfo method,object target,params object[] args) {
