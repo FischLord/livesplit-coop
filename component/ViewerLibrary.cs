@@ -47,7 +47,8 @@ namespace LiveSplit.Coop {
             string path=PathFor(splits),owner=Process.GetCurrentProcess().Id.ToString();
             if(File.Exists(path)) File.SetAttributes(path,FileAttributes.Normal);
             File.WriteAllText(path,owner);
-            File.SetAttributes(path,FileAttributes.Hidden);
+            // Hidden is cosmetic; the lock holds without it.
+            try { File.SetAttributes(path,FileAttributes.Hidden); } catch(IOException) { } catch(UnauthorizedAccessException) { }
             return new Held(path,owner);
         }
         public static bool IsHeld(string splits) {
@@ -58,6 +59,8 @@ namespace LiveSplit.Coop {
             } catch(ArgumentException) { return false; }
             catch(IOException) { return false; }
             catch(UnauthorizedAccessException) { return true; }
+            // HasExited on a process we may not query: it exists, so treat the lock as held.
+            catch(System.ComponentModel.Win32Exception) { return true; }
         }
     }
 }

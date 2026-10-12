@@ -26,6 +26,8 @@ public static class RecorderTests {
         LibraryTests(work);
         RecorderTestsMain(work);
         AdoptionTests(work);
+        FailureTests(work);
+        OpenHereTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static void FileTests(string work) {
@@ -125,6 +127,60 @@ public static class RecorderTests {
         string pending=new ViewerLibrary(null,fallback).PendingPath(target);
         Check(File.Exists(pending) && RunFiles.Load(pending).AttemptCount==1 && RunFiles.Load(target).AttemptCount==3,"a locked target sends the attempt to Pending");
         Check(locked.Note==Texts.T("recorder.pending",pending),"pending is reported");
+    }
+    static void FailureTests(string work) {
+        string fallback=Path.Combine(work,"fail","Splits","Coop");
+        var library=new ViewerLibrary(null,fallback);
+        long?[] pb={60,130,200},best={55,65,60};
+        string target=library.PathFor(Snap("x","NotRunning",-1,None,pb,best,null));
+        var recorder=new AttemptRecorder(library,s=>false,()=>DateTime.UtcNow);
+        recorder.Observe(Snap("f0","NotRunning",-1,None,pb,best,null),1);
+        // The target becomes unwritable (a directory is in the way): the attempt goes to Pending, Observe never throws.
+        File.Delete(target);Directory.CreateDirectory(target);
+        string pending=library.PendingPath(target);
+        recorder.Observe(Snap("f1","Running",1,new long?[]{58,null,null},pb,best,70),1);
+        bool threw=false;
+        try { recorder.Observe(Snap("f2","NotRunning",-1,None,pb,best,null),1); } catch(Exception) { threw=true; }
+        Check(!threw,"a failing save never throws out of Observe");
+        Check(File.Exists(pending) && RunFiles.Load(pending).AttemptCount==1,"the failed attempt is tried once more in Pending");
+        Check(recorder.Note!=null && recorder.Note.Contains(pending),"the viewer is told where the attempt went: "+recorder.Note);
+        // The attempt is finished only once: a following observation does not save it again.
+        recorder.Observe(Snap("f2","NotRunning",-1,None,pb,best,null),1);
+        Check(RunFiles.Load(pending).AttemptCount==1,"a failed attempt is not retried on the next observation");
+        // Later attempts are still processed once the target works again.
+        Directory.Delete(target);RunFiles.Save(RunFiles.FromSnapshot(Snap("x","NotRunning",-1,None,pb,best,null)),target);
+        recorder.Observe(Snap("f3","Running",1,new long?[]{58,null,null},pb,best,70),1);
+        recorder.Observe(Snap("f4","NotRunning",-1,None,pb,best,null),1);
+        Check(RunFiles.Load(target).AttemptCount==1,"later attempts are recorded after a failure");
+        // Both places fail: Note says so, still no exception and no repeated work.
+        File.Delete(target);Directory.CreateDirectory(target);File.Delete(pending);Directory.CreateDirectory(pending);
+        recorder.Observe(Snap("f5","Running",1,new long?[]{58,null,null},pb,best,70),1);
+        threw=false;
+        try { recorder.Observe(Snap("f6","NotRunning",-1,None,pb,best,null),1);recorder.Observe(Snap("f6","NotRunning",-1,None,pb,best,null),1); } catch(Exception) { threw=true; }
+        Check(!threw && recorder.Note.StartsWith("Could not save the attempt"),"when nothing can be saved the note says so: "+recorder.Note);
+        // First contact failures do not throw either.
+        var fresh=new AttemptRecorder(library,s=>false,()=>DateTime.UtcNow);
+        threw=false;
+        try { fresh.Observe(Snap("g0","NotRunning",-1,None,pb,best,null),1); } catch(Exception) { threw=true; }
+        Check(!threw && fresh.Note!=null,"a failing first contact never throws");
+    }
+    static void OpenHereTests(string work) {
+        string fallback=Path.Combine(work,"here","Splits","Coop");
+        var library=new ViewerLibrary(null,fallback);
+        long?[] pb={60,130,200},best={55,65,60};
+        string target=library.PathFor(Snap("x","NotRunning",-1,None,pb,best,null));
+        RunFiles.Save(RunFiles.FromSnapshot(Snap("x","NotRunning",-1,None,new long?[]{70,140,210},best,null)),target);
+        string open=target.ToUpperInvariant();
+        var recorder=new AttemptRecorder(library,s=>false,()=>DateTime.UtcNow,p=>AttemptRecorder.SamePath(p,open));
+        recorder.Observe(Snap("h0","NotRunning",-1,None,pb,best,null),1);
+        Check(RunFiles.Load(target)[2].PersonalBestSplitTime.RealTime==TimeSpan.FromSeconds(210),"splits open in this timer are not touched by first contact");
+        recorder.Observe(Snap("h1","Running",1,new long?[]{58,null,null},pb,best,70),1);
+        recorder.Observe(Snap("h2","NotRunning",-1,None,pb,best,null),1);
+        string pending=library.PendingPath(target);
+        Check(File.Exists(pending) && RunFiles.Load(pending).AttemptCount==1 && RunFiles.Load(target).AttemptCount==0,"an attempt for splits open in this timer goes to Pending");
+        Check(recorder.Note==Texts.T("recorder.openLocally",pending),"the viewer is told: "+recorder.Note);
+        Check(AttemptRecorder.SamePath(target,target.ToUpperInvariant()) && !AttemptRecorder.SamePath(target,null) && !AttemptRecorder.SamePath(target,"") && !AttemptRecorder.SamePath(target,"?:bad"),"path comparison ignores case and tolerates junk");
+        Check(Texts.Has("recorder.openLocally"),"text exists: recorder.openLocally");
     }
     static void AdoptionTests(string work) {
         string fallback=Path.Combine(work,"adopt","Splits","Coop");

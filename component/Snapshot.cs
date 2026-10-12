@@ -81,6 +81,8 @@ namespace LiveSplit.Coop {
         readonly string comparison;
         IRun expected;
         string runId;
+        // The viewer's own splits file as loaded when viewing began; the mirror keeps that run in memory.
+        public string OriginalFilePath { get { return original.FilePath; } }
         Snapshot latest;
         public Mirror(LiveSplitState state) {
             if(state.CurrentPhase!=TimerPhase.NotRunning) throw new InvalidOperationException("Stop/reset the local timer before joining as viewer.");
