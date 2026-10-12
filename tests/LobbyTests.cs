@@ -17,6 +17,7 @@ public static class LobbyTests {
         KeyTests();
         TextTests();
         ClientTests(relay);
+        StateTests(work);
         Console.WriteLine(passed+" checks passed");
     }
     static string Unique(string prefix){return (prefix+DateTime.UtcNow.Ticks.ToString("x")+Guid.NewGuid().ToString("N").Substring(0,4)).Substring(0,Math.Min(32,prefix.Length+18));}
@@ -40,6 +41,31 @@ public static class LobbyTests {
         Check(!LobbyClient.List(relay).Any(l=>l.name==open.name),"private lobby is not listed");
         try { LobbyClient.List("wss://127.0.0.1:1/coop");Check(false,"unreachable server throws"); }
         catch(LobbyException e) { Check(e.Message.StartsWith(Texts.T("lobby.unreachable","").TrimEnd()),"unreachable server is explained"); }
+    }
+    static void StateTests(string work) {
+        string path=Path.Combine(work,"coop-local.json");
+        if(File.Exists(path)) File.Delete(path);
+        var empty=LocalState.Load(path);
+        Check(empty.lobby==null && empty.lastProfile==null && empty.server==null,"missing file gives an empty state");
+        var grant=new LobbyGrant { server="wss://relay.example/coop",name="rvgang",roomId="lobby_rvgang",hostKey=new string('h',43),viewerKey=new string('v',43),isPublic=true,locked=true };
+        var state=new LocalState { lastProfile="valley|ac|duo|nmg",lobby=LobbyState.From(grant,"host","banane") };
+        state.Save(path);
+        string text=File.ReadAllText(path);
+        Check(!text.Contains(new string('h',43)) && !text.Contains(new string('v',43)) && !text.Contains("banane"),"keys and password are not stored in plain text");
+        var loaded=LocalState.Load(path);
+        Check(loaded.lastProfile=="valley|ac|duo|nmg" && loaded.lobby.name=="rvgang" && loaded.lobby.roomId=="lobby_rvgang" && loaded.lobby.role=="host","state round-trips");
+        Check(loaded.lobby.isPublic && loaded.lobby.locked && loaded.lobby.server=="wss://relay.example/coop","lobby flags round-trip");
+        Check(LocalState.Unprotect(loaded.lobby.protectedHostKey)==new string('h',43) && LocalState.Unprotect(loaded.lobby.protectedViewerKey)==new string('v',43),"keys decrypt");
+        Check(LocalState.Unprotect(loaded.lobby.protectedPassword)=="banane","host password decrypts");
+        var viewer=LobbyState.From(grant,"viewer","banane");
+        Check(viewer.protectedHostKey=="" && viewer.protectedPassword=="","viewers never store host key or password");
+        File.WriteAllText(path,"{ broken");
+        var recovered=LocalState.Load(path);
+        Check(recovered.lobby==null && Directory.GetFiles(work,"coop-local.json.broken-*").Length>=1,"a broken file is set aside and an empty state is used");
+        var legacy=LobbyState.FromLegacy("wss://relay.example/coop","roomid","host",new string('k',43),new string('i',43));
+        Check(legacy.name==null && legacy.roomId=="roomid" && LocalState.Unprotect(legacy.protectedHostKey)==new string('k',43) && LocalState.Unprotect(legacy.protectedViewerKey)==new string('i',43),"legacy host room keeps host and invite key");
+        var legacyViewer=LobbyState.FromLegacy("wss://relay.example/coop","roomid","viewer",new string('k',43),"");
+        Check(legacyViewer.protectedHostKey=="" && LocalState.Unprotect(legacyViewer.protectedViewerKey)==new string('k',43),"legacy viewer room keeps the viewer key");
     }
     static void TextTests() {
         Texts.German=true;
