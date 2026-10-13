@@ -7,6 +7,12 @@
 3. In LiveSplit, right-click **Edit Layout**, add **Control → Coop Relay**, open its settings and choose the **Role** of this layout: **Host** (this timer measures) or **Viewer** (follow the host). The role belongs to the layout, so the host and the teammates each use their own layout. Close the settings; you do not need to save anything else for coop.
 4. Right-click the timer and choose **Coop...**. This one entry opens the coop window.
 
+### Set the relay (everyone, once)
+
+There is no built-in server. Right-click → **Coop...** → **Advanced** → **Server**: enter your group's relay address (`wss://…/coop`). Everyone in the group uses the same one. Until an address is entered, the window says so and Create/Join stay disabled. No relay yet? Set one up on Cloudflare's free plan in about 10 minutes: [Run your own relay](self-hosting-cloudflare.md). A game package can also preset the server (see profile packs below).
+
+![Coop window before a relay is set](images/en/coop-no-server.png)
+
 ### Host
 
 1. Load your own splits and autosplitter. In a coop game this should be the person hosting the game lobby.
@@ -47,20 +53,20 @@ While a viewer follows the host, attempts they watch are recorded into the viewe
 
 Open **Advanced** in the coop window:
 
-- **Server**: the community relay is preset (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, without availability guarantee). A group can run its own relay for free on Cloudflare: [Run your own relay](self-hosting-cloudflare.md), or follow [deployment](deployment.md) for Linux. Everyone in the group needs the same server address. The relay can technically see timer data (splits, PBs, game, category).
+- **Server**: the relay address (`wss://…/coop`). It comes from the game package's `coop-profiles.json` (`server`) if there is one; what you enter here overrides it. A group can run its own relay for free on Cloudflare: [Run your own relay](self-hosting-cloudflare.md), or follow [deployment](deployment.md) for Linux. Everyone in the group needs the same server address. The relay can technically see timer data (splits, PBs, game, category).
 - **Join with invitation** (viewers): paste an older `lscoop:1:` invitation code.
 - **Export diagnostics...**: see [diagnostics](diagnostics.md).
 
 ### Profile packs (for game package authors)
 
-A game package can ship a `coop-profiles.json` next to its files that maps a game/category selection to splits and layout. The host shows the matching profile label in public lists, and viewers record into the matching splits. Format: [lobbies design, section 3.3](superpowers/specs/2026-10-12-lobbies-design.md).
+A game package can ship a `coop-profiles.json` next to its files that maps a game/category selection to splits and layout, and can preset the relay with an optional `server` field. The host shows the matching profile label in public lists, and viewers record into the matching splits. Format: [lobbies design, section 3.3](superpowers/specs/2026-10-12-lobbies-design.md).
 
 ### Invitation codes (older versions)
 
-Versions before the lobby flow used `lscoop:1:...` invitation codes for rooms. They still work: viewers paste them under **Advanced → Join with invitation**. The code contains only the viewer key; never share a host key. Lobbies need a relay that supports them (the community relay and the Cloudflare guide do); other relays answer with *This server has no lobbies*, and invitations are then the way in.
+Versions before the lobby flow used `lscoop:1:...` invitation codes for rooms. They still work: viewers paste them under **Advanced → Join with invitation**. The code contains only the viewer key; never share a host key. Lobbies need a relay that supports them (the Cloudflare relay from the guide does); other relays answer with *This server has no lobbies*, and invitations are then the way in.
 
 Keys are stored only on the player's PC. No VPN or router port-forwarding is required on player PCs. The relay operator exposes only the chosen TLS endpoint.
 
 ## Deutsch
 
-Die vollständige deutsche Anleitung steht in [setup.de.md](setup.de.md). Kurzfassung: LiveSplit separat installieren, `Components/LiveSplit.Coop.dll` nach `Components` kopieren, im Layout **Control → Coop Relay** hinzufügen und die Rolle (Host oder Viewer) wählen, dann per Rechtsklick **Coop...** öffnen. Der Host legt eine Lobby an (Name, optional Passwort) und schickt Name und Passwort an die Mitspieler; Mitspieler wählen die Lobby aus der Liste oder tippen den Namen und treten bei.
+Die vollständige deutsche Anleitung steht in [setup.de.md](setup.de.md). Kurzfassung: LiveSplit separat installieren, `Components/LiveSplit.Coop.dll` nach `Components` kopieren, im Layout **Control → Coop Relay** hinzufügen und die Rolle (Host oder Viewer) wählen, dann per Rechtsklick **Coop...** öffnen und unter **Erweitert → Server** die Relay-Adresse eurer Gruppe eintragen (`wss://…/coop`). Der Host legt eine Lobby an (Name, optional Passwort) und schickt Name und Passwort an die Mitspieler; Mitspieler wählen die Lobby aus der Liste oder tippen den Namen und treten bei.

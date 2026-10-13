@@ -10,9 +10,9 @@ Verified on Windows with installed LiveSplit 1.8.34 and Node 25.9.0. The relay t
 
 The build uses warnings as errors. By default native tests create in-memory sample runs and start/stop their own loopback relay. Both native/trio scripts now accept an explicit WSS URL and private rooms file for an owned external deployment. The trio test launches separate visible LiveSplit test copies and closes only its own processes. No game process, original split/layout file or existing LiveSplit instance is modified.
 
-## Community relay over the public internet, 2026-09-28
+## Cloudflare relay over the public internet, 2026-09-28
 
-From a private PC outside the development network, two LiveSplit instances used the deployed Worker at `wss://livesplit-coop-relay.janneck.workers.dev/coop`: the host created a room, the viewer joined with the invite, and start and pause reached the viewer. The viewer first refused to connect because the registered autosplitter was active; after **Edit Splits → Deactivate** it connected. That message now says where to click and also appears when the invite is applied. Cloudflare's dashboard for this session showed about 1.24k Durable Object requests, 0.128 GB-s duration, 13 SQL rows written and one Room error whose cause was not recorded; Workers Logs are enabled since. Split, undo, reset, finish, host loss and reconnection were not repeated over the public endpoint. Native checks: **57/57** locally.
+From a private PC outside the development network, two LiveSplit instances used a deployed Worker (a relay run by the author): the host created a room, the viewer joined with the invite, and start and pause reached the viewer. The viewer first refused to connect because the registered autosplitter was active; after **Edit Splits → Deactivate** it connected. That message now says where to click and also appears when the invite is applied. Cloudflare's dashboard for this session showed about 1.24k Durable Object requests, 0.128 GB-s duration, 13 SQL rows written and one Room error whose cause was not recorded; Workers Logs are enabled since. Split, undo, reset, finish, host loss and reconnection were not repeated over the public endpoint. Native checks: **57/57** locally.
 
 ## Room creation and invites, 2026-09-28
 

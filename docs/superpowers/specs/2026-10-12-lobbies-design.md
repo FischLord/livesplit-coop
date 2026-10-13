@@ -100,6 +100,7 @@ Gesucht neben `LiveSplit.exe` und in bis zu drei Elternordnern; Pfade darin rela
   "game": "RV There Yet?",
   "autosplitter": "Autosplitter/RVThereYet-AllMaps.asl",
   "viewerLayout": "Layouts/Viewer.lsl",
+  "server": "wss://your-relay.your-subdomain.workers.dev/coop",
   "dimensions": [
     {"id": "map", "label": {"de": "Karte", "en": "Map"},
      "options": [{"id": "valley", "label": "Mabutts Valley"}]}
@@ -113,6 +114,11 @@ Gesucht neben `LiveSplit.exe` und in bis zu drei Elternordnern; Pfade darin rela
   ]
 }
 ```
+
+`server` ist optional: ein vorbelegter Relay (`wss://host/coop`, `ws://` nur auf Loopback; leer oder
+fehlend ist erlaubt, alles andere lehnt `Validate()` ab). Die Komponente hat keinen eingebauten Server;
+`CoopComponent.Server` ist der in `coop-local.json` gespeicherte Wert, sonst `server` aus dem Paket, sonst leer.
+Ohne Server zeigt das Coop-Fenster einen Hinweis, öffnet „Erweitert“ und sperrt Erstellen/Beitreten/Liste.
 
 **Profilwahl ist Aufgabe des Spiel-Pakets**, nicht der Komponente. Der Starter des Pakets
 (RV: Start-CMD / `Start-Timer.ps1`) fragt je Dimension aus `coop-profiles.json` (Enter = zuletzt

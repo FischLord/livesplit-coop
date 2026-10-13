@@ -2,36 +2,40 @@
 
 One player measures the run. Teammates see the same splits in their own LiveSplit windows — through a relay you host yourself, without a VPN or a desktop companion app.
 
-**Status: 1.0.0.** Built and tested with Windows LiveSplit 1.8.34 and 1.8.37. Protocol v3 with named lobbies (name plus optional password), a public lobby list and optional invitation codes; a community relay on Cloudflare (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, without availability guarantee) is preset, and self-hosting stays fully supported. The UI is English, and German when Windows is set to German. See the [1.0.0 release notes](docs/releases/v1.0.0.md).
+**Status: 1.0.0.** Built and tested with Windows LiveSplit 1.8.34 and 1.8.37. Protocol v3 with named lobbies (name plus optional password), a public lobby list and optional invitation codes; there is no built-in server: your group runs its own relay (free on Cloudflare) or gets an address from whoever does. The UI is English, and German when Windows is set to German. See the [1.0.0 release notes](docs/releases/v1.0.0.md).
 
 ## Quick start (no build needed)
 
 1. Download **`LiveSplit.Coop-v1.0.0.zip`** from the [latest release](https://github.com/FischLord/livesplit-coop/releases/latest). It is an add-on for an installed LiveSplit (Windows 10/11, tested with LiveSplit 1.8.34 and 1.8.37). LiveSplit itself: <https://livesplit.org/downloads/>.
 2. Close LiveSplit. Copy `Components/LiveSplit.Coop.dll` from the ZIP into the `Components` folder of your LiveSplit (next to `LiveSplit.exe`). Tip: if Windows blocks downloaded files, right-click the ZIP → **Properties** → **Unblock** before extracting.
 3. Start LiveSplit → right-click → **Edit Layout** → **+** → **Control** → **Coop Relay** → OK. Then **Layout Settings** → **Coop Relay** → choose your role: **Host** (the player whose timer measures; keeps the autosplitter) or **Viewer** (teammates; remove any autosplitter from the viewer layout). Save the layout.
-4. Host: right-click → **Coop...** → enter a lobby name (and optional password; tick "Show in the public list" if you want) → **Create lobby**. Name and password are copied to the clipboard; send them to your teammates.
+4. Set the relay: right-click → **Coop...** → **Advanced** → **Server**: enter your group's relay address (`wss://…/coop`). Everyone in the group uses the same one. No relay yet? Set one up on Cloudflare's free plan in about 10 minutes: [docs/self-hosting-cloudflare.md](docs/self-hosting-cloudflare.md).
+
+   ![Coop window before a relay is set](docs/images/en/coop-no-server.png)
+
+5. Host: right-click → **Coop...** → enter a lobby name (and optional password; tick "Show in the public list" if you want) → **Create lobby**. Name and password are copied to the clipboard; send them to your teammates.
 
    ![Coop window: creating a lobby](docs/images/en/coop-host-create.png)
 
-5. Teammates: right-click → **Coop...** → pick the lobby from the public list (or type its name) → password → **Join**.
+6. Teammates: right-click → **Coop...** → pick the lobby from the public list (or type its name) → password → **Join**.
 
    ![Coop window: joining a lobby](docs/images/en/coop-viewer-join.png)
 
-6. Done. The status line shows e.g. "team-night · Host · 2 online" or "team-night · following host". Next time, LiveSplit reconnects to the lobby automatically.
+7. Done. The status line shows e.g. "team-night · Host · 2 online" or "team-night · following host". Next time, LiveSplit reconnects to the lobby automatically.
 
    ![Status line](docs/images/en/status-line.png)
 
-By default the community relay is used (`wss://livesplit-coop-relay.janneck.workers.dev/coop`): no availability guarantee, and the relay operator can technically see timer data. To run your own in a few minutes, follow [Run your own relay on Cloudflare](docs/self-hosting-cloudflare.md).
+The relay operator can technically see timer data (splits, PBs, game, category). A game package can preset a server for its players via `coop-profiles.json` (`server`). To run your own relay, follow [Run your own relay on Cloudflare](docs/self-hosting-cloudflare.md).
 
 Full guide: [docs/quickstart.md](docs/quickstart.md).
 
-**Deutsch:** Kurzfassung: ZIP herunterladen, `Components/LiveSplit.Coop.dll` in den `Components`-Ordner von LiveSplit kopieren, dann Control → Coop Relay hinzufügen und die Rolle wählen. Per Rechtsklick **Coop...** eine Lobby erstellen oder beitreten. Ausführlich: [docs/setup.de.md](docs/setup.de.md).
+**Deutsch:** Kurzfassung: ZIP herunterladen, `Components/LiveSplit.Coop.dll` in den `Components`-Ordner von LiveSplit kopieren, dann Control → Coop Relay hinzufügen und die Rolle wählen. Per Rechtsklick **Coop...** → **Erweitert** → **Server** die Relay-Adresse eurer Gruppe eintragen (`wss://…/coop`; noch keinen Relay? Anleitung: [docs/self-hosting-cloudflare.de.md](docs/self-hosting-cloudflare.de.md)), dann eine Lobby erstellen oder beitreten. Ausführlich: [docs/setup.de.md](docs/setup.de.md).
 
 ## How it fits together
 
 ```text
 Host LiveSplit + Coop component ──WSS──┐
-                                      │ Relay: community relay on Cloudflare,
+                                      │ Relay: your own on Cloudflare,
 Viewer LiveSplit + Coop component ─WSS─┤ or your own (Cloudflare / Node / Docker)
 Viewer LiveSplit + Coop component ─WSS─┘
 ```

@@ -9,6 +9,9 @@ LiveSplit Coop ist ein selbst hostbarer Coop-Timer. Der Spielhost misst; alle Mi
 3. `LiveSplit.Coop.dll` nach `Components` der Testkopie kopieren; LiveSplit neu starten.
 4. Im Layout **Control → Coop Relay** hinzufügen, die Einstellungen öffnen und die **Rolle** wählen: **Host** (dieser Timer misst) oder **Viewer** (dem Host folgen). Die Rolle gehört zum Layout; Host und Mitspieler nutzen also je ein eigenes Layout.
 5. Rechtsklick auf den Timer → **Coop...** öffnet das Coop-Fenster. Mehr Menüeinträge gibt es nicht.
+6. Relay setzen: im Coop-Fenster **Erweitert → Server**: die Relay-Adresse eurer Gruppe eintragen (`wss://…/coop`). Alle in der Gruppe nutzen dieselbe. Noch kein Relay? Auf Cloudflares Gratis-Plan in etwa 10 Minuten einrichten: [Eigenen Relay betreiben](self-hosting-cloudflare.de.md). Ohne Adresse weist das Fenster darauf hin und Erstellen/Beitreten bleiben gesperrt.
+
+![Coop-Fenster ohne eingestellten Relay](images/de/coop-no-server.png)
 
 ### Host
 
@@ -43,7 +46,7 @@ Die aktuelle Lobby steht in `coop-local.json` neben `LiveSplit.exe`; die Schlüs
 
 Im Coop-Fenster unter **Erweitert**:
 
-- **Server**: voreingestellt ist der Community-Relay (ohne Verfügbarkeitsgarantie). Ihr könnt auch einen eigenen Relay betreiben, kostenlos auf Cloudflare: [Eigenen Relay betreiben](self-hosting-cloudflare.de.md). Alle in der Gruppe brauchen dieselbe Serveradresse.
+- **Server**: die Relay-Adresse (`wss://…/coop`). Sie kommt aus der `coop-profiles.json` des Spiel-Pakets (`server`), falls vorhanden; was ihr hier eintragt, hat Vorrang. Einen eigenen Relay könnt ihr kostenlos auf Cloudflare betreiben: [Eigenen Relay betreiben](self-hosting-cloudflare.de.md). Alle in der Gruppe brauchen dieselbe Serveradresse.
 - **Mit Einladungscode beitreten** (Viewer): einen älteren `lscoop:1:`-Code einfügen.
 - **Diagnose exportieren...**: siehe [Diagnose](diagnostics.md).
 
@@ -53,7 +56,7 @@ Vor den Lobbys wurden Räume über `lscoop:1:...`-Einladungscodes geteilt. Sie f
 
 ### Profil-Pakete
 
-Spiel-Pakete können eine `coop-profiles.json` mitliefern, die eine Spiel-/Kategorie-Auswahl auf Splits und Layout abbildet. Das Format steht im [Lobby-Entwurf, Abschnitt 3.3](superpowers/specs/2026-10-12-lobbies-design.md).
+Spiel-Pakete können eine `coop-profiles.json` mitliefern, die eine Spiel-/Kategorie-Auswahl auf Splits und Layout abbildet. Optional kann sie mit `server` einen Relay vorbelegen. Das Format steht im [Lobby-Entwurf, Abschnitt 3.3](superpowers/specs/2026-10-12-lobbies-design.md).
 
 Für einen lokalen Test nutzt ihr als Server `ws://127.0.0.1:8787/coop` auf demselben PC. Bei verschiedenen PCs wird ein per HTTPS/WSS erreichbarer Relay benötigt, etwa `wss://timer.example.com/coop`. Ein localhost-Link ist nicht die Adresse für eure Mitspieler.
 

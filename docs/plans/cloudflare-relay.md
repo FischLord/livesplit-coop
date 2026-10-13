@@ -1,6 +1,6 @@
-# Feature-Plan: Community-Relay auf Cloudflare Durable Objects
+# Feature-Plan: Relay auf Cloudflare Durable Objects
 
-**Status:** Phasen 1–3 erledigt; Relay deployt unter `livesplit-coop-relay.janneck.workers.dev` (geschlossene Beta) · offen: Test über das öffentliche Netz, Phase 4–5 · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
+**Status:** Phasen 1–3 erledigt; Relay deployt (geschlossene Beta) · offen: Test über das öffentliche Netz, Phase 4–5 · **Stand:** 2026-09-28 · **Basis:** Protokoll v3
 
 ## Ziel
 
@@ -79,7 +79,7 @@ Das ist der wichtigste Kostenfaktor. Laufzeit wird nicht berechnet, solange das 
 
 - Neuer Button **„Raum erstellen“** (nur für die Rolle Host). Er ruft `POST /rooms` auf, übernimmt Raum-ID und Host-Key und zeigt den Einladungscode zum Kopieren an.
 - Neues Feld **„Einladungscode einfügen“** für Viewer, das Adresse, Raum und Key automatisch ausfüllt.
-- Server-URL mit Voreinstellung auf den Community-Server; eigene URL bleibt möglich.
+- Server-URL ohne eingebauten Standard: jede Gruppe trägt ihren eigenen Relay ein (Spiel-Pakete können einen vorbelegen).
 - Verständliche Meldungen für abgelaufene Räume (4004) und veraltete Versionen.
 - `Start-Coop.ps1`: `Zugang.private.json` kann alternativ einen Einladungscode enthalten.
 
@@ -145,7 +145,7 @@ Keine Rechtsberatung, sondern Punkte, die vor dem öffentlichen Start geklärt s
 - Räume verfallen nach 7 Tagen ohne Aktivität.
 - Cloudflare-Account ist vorhanden.
 
-Umsetzung Phase 1 abweichend vom Entwurf: `hello` enthält keinen Raum mehr, und der nackte Pfad `/coop` bleibt nur offen, damit v1/v2-Clients die Update-Meldung erhalten. `POST /rooms` liefert `idleExpiryDays` statt `expiresAt`, weil der Ablauf an Inaktivität hängt. Phase 3: Einladungscode `lscoop:1:<server>/<room>#<viewerKey>` (die Server-URL steht im Code, damit auch eigene Relays funktionieren). Die Server-URL ist für neue Komponenten auf den Community-Relay voreingestellt; bestehende Layouts behalten ihre Adresse.
+Umsetzung Phase 1 abweichend vom Entwurf: `hello` enthält keinen Raum mehr, und der nackte Pfad `/coop` bleibt nur offen, damit v1/v2-Clients die Update-Meldung erhalten. `POST /rooms` liefert `idleExpiryDays` statt `expiresAt`, weil der Ablauf an Inaktivität hängt. Phase 3: Einladungscode `lscoop:1:<server>/<room>#<viewerKey>` (die Server-URL steht im Code, damit auch eigene Relays funktionieren). Die Server-URL hat keinen eingebauten Standard; bestehende Layouts behalten ihre Adresse.
 
 ## Ursprünglich offene Entscheidungen
 
@@ -153,4 +153,4 @@ Umsetzung Phase 1 abweichend vom Entwurf: `hello` enthält keinen Raum mehr, und
 2. **Domain:** `*.workers.dev` oder eine eigene Domain wie `coop.<deine-domain>`?
 3. **Ablaufzeit der Räume:** 7 Tage? Oder feste Räume für Stammgruppen verlängerbar machen?
 4. **Wer betreibt den Dienst offiziell**, also wer steht im Impressum?
-5. **Voreinstellung der Server-URL** in der Komponente: Community-Server oder leer?
+5. **Voreinstellung der Server-URL** in der Komponente: entschieden, die Komponente bringt keinen Standard mit.
