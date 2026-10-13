@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$Version='0.1.0-beta.3')
+param([Parameter(Mandatory=$true)][string]$LiveSplitPath,[string]$Version='1.0.0')
 $ErrorActionPreference='Stop'
 if($Version -notmatch '^\d+\.\d+\.\d+(-[a-z0-9.]+)?$'){throw 'Invalid release version.'}
 $root=Split-Path -Parent $PSScriptRoot
@@ -15,7 +15,8 @@ function Include([string]$destination,[string]$relative) {
     Copy-Item -LiteralPath (Join-Path $root $relative) -Destination $target
 }
 # Explicit allowlists: never recurse through a working tree or a user's LiveSplit.
-$docs=@('README.md','LICENSE','THIRD_PARTY.md','docs\quickstart.md','docs\setup.de.md','docs\deployment.md','docs\protocol.md','docs\portable.md','docs\verification.md',('docs\releases\v'+$Version+'.md'))
+$docs=@('README.md','LICENSE','THIRD_PARTY.md','docs\quickstart.md','docs\setup.de.md','docs\deployment.md','docs\protocol.md','docs\portable.md','docs\verification.md','docs\diagnostics.md','docs\self-hosting-cloudflare.md','docs\self-hosting-cloudflare.de.md',('docs\releases\v'+$Version+'.md'))
+foreach($image in Get-ChildItem -LiteralPath (Join-Path $root 'docs\images') -Recurse -File -Filter '*.png'){$docs+=$image.FullName.Substring($root.Length+1)}
 foreach($destination in @($component,$relay)){foreach($file in $docs){Include $destination $file}}
 New-Item -ItemType Directory -Path (Join-Path $component 'Components') | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'dist\LiveSplit.Coop.dll') -Destination (Join-Path $component 'Components')

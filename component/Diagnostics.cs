@@ -51,7 +51,7 @@ namespace LiveSplit.Coop {
             this.directory=directory;this.maxBytes=maxBytes;this.maxFiles=maxFiles;
             prefix="coop-"+DateTime.UtcNow.ToString("yyyyMMddTHHmmssfff")+"-"+Guid.NewGuid().ToString("N");
             Directory.CreateDirectory(directory);OpenPart();
-            Write("session",new { build="0.1.0-beta.3+diagnostics.1",protocol=RelayConnection.Protocol,
+            Write("session",new { build="1.0.0",protocol=RelayConnection.Protocol,
                 runtime=Environment.Version.ToString(),bits=IntPtr.Size*8 });
             timer=new Timer(_=>Flush(),null,1000,1000);
         }

@@ -1,5 +1,5 @@
 ---
-name: Beta bug report
+name: Bug report
 about: Report a reproducible LiveSplit Coop problem
 title: ''
 labels: bug

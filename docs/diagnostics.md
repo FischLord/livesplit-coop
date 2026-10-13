@@ -1,6 +1,6 @@
 # Local Coop diagnostics
 
-The local `0.1.0-beta.3+diagnostics.1` build retains protocol v3 and works with existing beta.3 clients and relays. No server or teammate update is required. The assembly version remains unchanged; the diagnostic session header identifies this local build.
+Diagnostics are part of LiveSplit Coop 1.0.0 (protocol v3). The diagnostic session header records the component version.
 
 Logs start when a Coop component loads. They are JSON Lines files in `Logs/Coop` beside that LiveSplit executable (the component's parent directory). If that directory is not writable, storage falls back to `%LOCALAPPDATA%/LiveSplit.Coop/Logs`.
 

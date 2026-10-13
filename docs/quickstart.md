@@ -1,8 +1,8 @@
-# Beta quick start / Schnellstart
+# Quick start / Schnellstart
 
 ## English
 
-1. Install LiveSplit separately (tested: 1.8.34 on Windows 10/11, .NET Framework 4.8). Back up your splits/layout and try the beta in a separate LiveSplit copy first.
+1. Install LiveSplit separately (tested: 1.8.34 on Windows 10/11, .NET Framework 4.8). Back up your splits/layout and try it in a separate LiveSplit copy first.
 2. Download the component ZIP from this repository's Releases and copy `Components/LiveSplit.Coop.dll` into LiveSplit's `Components` directory. Restart LiveSplit. The archive does not include LiveSplit itself.
 3. In LiveSplit, right-click **Edit Layout**, add **Control → Coop Relay**, open its settings and choose the **Role** of this layout: **Host** (this timer measures) or **Viewer** (follow the host). The role belongs to the layout, so the host and the teammates each use their own layout. Close the settings; you do not need to save anything else for coop.
 4. Right-click the timer and choose **Coop...**. This one entry opens the coop window.
@@ -47,7 +47,7 @@ While a viewer follows the host, attempts they watch are recorded into the viewe
 
 Open **Advanced** in the coop window:
 
-- **Server**: the community relay is preset (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, a closed beta without availability guarantee). A group can run its own relay for free on Cloudflare: [Run your own relay](self-hosting-cloudflare.md), or follow [deployment](deployment.md) for Linux. Everyone in the group needs the same server address. The relay can technically see timer data (splits, PBs, game, category).
+- **Server**: the community relay is preset (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, without availability guarantee). A group can run its own relay for free on Cloudflare: [Run your own relay](self-hosting-cloudflare.md), or follow [deployment](deployment.md) for Linux. Everyone in the group needs the same server address. The relay can technically see timer data (splits, PBs, game, category).
 - **Join with invitation** (viewers): paste an older `lscoop:1:` invitation code.
 - **Export diagnostics...**: see [diagnostics](diagnostics.md).
 

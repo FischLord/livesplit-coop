@@ -43,7 +43,7 @@ Die aktuelle Lobby steht in `coop-local.json` neben `LiveSplit.exe`; die Schlüs
 
 Im Coop-Fenster unter **Erweitert**:
 
-- **Server**: voreingestellt ist der Community-Relay (geschlossene Beta ohne Verfügbarkeitsgarantie). Ihr könnt auch einen eigenen Relay betreiben, kostenlos auf Cloudflare: [Eigenen Relay betreiben](self-hosting-cloudflare.de.md). Alle in der Gruppe brauchen dieselbe Serveradresse.
+- **Server**: voreingestellt ist der Community-Relay (ohne Verfügbarkeitsgarantie). Ihr könnt auch einen eigenen Relay betreiben, kostenlos auf Cloudflare: [Eigenen Relay betreiben](self-hosting-cloudflare.de.md). Alle in der Gruppe brauchen dieselbe Serveradresse.
 - **Mit Einladungscode beitreten** (Viewer): einen älteren `lscoop:1:`-Code einfügen.
 - **Diagnose exportieren...**: siehe [Diagnose](diagnostics.md).
 

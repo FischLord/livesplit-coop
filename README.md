@@ -2,7 +2,7 @@
 
 One player measures the run. Teammates see the same splits in their own LiveSplit windows — through a relay you host yourself, without a VPN or a desktop companion app.
 
-**Status: 0.1.0-beta.3 — public testing beta.** Built and tested with Windows LiveSplit 1.8.34 and 1.8.37. Protocol v3 adds room creation, invite codes and named lobbies (name plus optional password); a community relay on Cloudflare (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, closed beta without availability guarantee) is preset, and self-hosting stays fully supported. beta.3 cannot talk to beta.2 clients or relays. A complete real game run remains untested.
+**Status: 1.0.0.** Built and tested with Windows LiveSplit 1.8.34 and 1.8.37. Protocol v3 with named lobbies (name plus optional password), a public lobby list and optional invitation codes; a community relay on Cloudflare (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, without availability guarantee) is preset, and self-hosting stays fully supported. The UI is English, and German when Windows is set to German. See the [1.0.0 release notes](docs/releases/v1.0.0.md).
 
 ```text
 Host LiveSplit + Coop component ──WSS──┐
@@ -25,7 +25,7 @@ Viewer LiveSplit + Coop component ─WSS─┘
 
 ## Build the component (Windows)
 
-To use a prebuilt beta, extract `LiveSplit.Coop-v0.1.0-beta.3.zip` and copy its `Components/LiveSplit.Coop.dll` into your LiveSplit installation. This is an **add-on**, not a complete LiveSplit distribution. Windows 10/11 with .NET Framework 4.8 and LiveSplit 1.8.34/1.8.37 are the tested client environment. Nothing else is installed on player PCs: right-click the timer and open **Coop...**: the host creates a lobby (name, optional password) and shares name and password, teammates pick it from the public list or type the name and click **Join**. The community relay can technically see timer data (splits, PBs, game, category); groups that prefer not to use it can run their own relay. See the [quick start](docs/quickstart.md).
+To use a prebuilt release, extract `LiveSplit.Coop-v1.0.0.zip` and copy its `Components/LiveSplit.Coop.dll` into your LiveSplit installation. This is an **add-on**, not a complete LiveSplit distribution. Windows 10/11 with .NET Framework 4.8 and LiveSplit 1.8.34/1.8.37 are the tested client environment. Nothing else is installed on player PCs: right-click the timer and open **Coop...**: the host creates a lobby (name, optional password) and shares name and password, teammates pick it from the public list or type the name and click **Join**. The community relay can technically see timer data (splits, PBs, game, category); groups that prefer not to use it can run their own relay. See the [quick start](docs/quickstart.md).
 
 The public archives contain no game autosplitters, personal splits/PBs, live room keys or hosted service credentials. Bring your own host splits and autosplitter. The relay is game-independent; RV There Yet was the initial development use case.
 
@@ -91,4 +91,4 @@ For an owned external deployment, the native and trio scripts accept `-RelayAddr
 
 [Deutsche Anleitung](docs/setup.de.md) · [Run your own relay (Cloudflare)](docs/self-hosting-cloudflare.md) · [Eigenen Relay betreiben](docs/self-hosting-cloudflare.de.md) · [Protocol](docs/protocol.md) · [Deployment](docs/deployment.md) · [License and provenance](THIRD_PARTY.md)
 
-For beta feedback, open an issue with client/relay versions, host/viewer role, timing method, expected behavior and reproducible steps. Remove access keys and private room data from screenshots/logs. See [release notes](docs/releases/v0.1.0-beta.1.md).
+For feedback, open an issue with client/relay versions, host/viewer role, timing method, expected behavior and reproducible steps. Remove access keys and private room data from screenshots/logs. See [release notes](docs/releases/v1.0.0.md).
