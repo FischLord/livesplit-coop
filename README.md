@@ -4,10 +4,35 @@ One player measures the run. Teammates see the same splits in their own LiveSpli
 
 **Status: 1.0.0.** Built and tested with Windows LiveSplit 1.8.34 and 1.8.37. Protocol v3 with named lobbies (name plus optional password), a public lobby list and optional invitation codes; a community relay on Cloudflare (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, without availability guarantee) is preset, and self-hosting stays fully supported. The UI is English, and German when Windows is set to German. See the [1.0.0 release notes](docs/releases/v1.0.0.md).
 
+## Quick start (no build needed)
+
+1. Download **`LiveSplit.Coop-v1.0.0.zip`** from the [latest release](https://github.com/FischLord/livesplit-coop/releases/latest). It is an add-on for an installed LiveSplit (Windows 10/11, tested with LiveSplit 1.8.34 and 1.8.37). LiveSplit itself: <https://livesplit.org/downloads/>.
+2. Close LiveSplit. Copy `Components/LiveSplit.Coop.dll` from the ZIP into the `Components` folder of your LiveSplit (next to `LiveSplit.exe`). Tip: if Windows blocks downloaded files, right-click the ZIP → **Properties** → **Unblock** before extracting.
+3. Start LiveSplit → right-click → **Edit Layout** → **+** → **Control** → **Coop Relay** → OK. Then **Layout Settings** → **Coop Relay** → choose your role: **Host** (the player whose timer measures; keeps the autosplitter) or **Viewer** (teammates; remove any autosplitter from the viewer layout). Save the layout.
+4. Host: right-click → **Coop...** → enter a lobby name (and optional password; tick "Show in the public list" if you want) → **Create lobby**. Name and password are copied to the clipboard; send them to your teammates.
+
+   ![Coop window: creating a lobby](docs/images/en/coop-host-create.png)
+
+5. Teammates: right-click → **Coop...** → pick the lobby from the public list (or type its name) → password → **Join**.
+
+   ![Coop window: joining a lobby](docs/images/en/coop-viewer-join.png)
+
+6. Done. The status line shows e.g. "team-night · Host · 2 online" or "team-night · following host". Next time, LiveSplit reconnects to the lobby automatically.
+
+   ![Status line](docs/images/en/status-line.png)
+
+By default the community relay is used (`wss://livesplit-coop-relay.janneck.workers.dev/coop`): no availability guarantee, and the relay operator can technically see timer data. To run your own in a few minutes, follow [Run your own relay on Cloudflare](docs/self-hosting-cloudflare.md).
+
+Full guide: [docs/quickstart.md](docs/quickstart.md).
+
+**Deutsch:** Kurzfassung: ZIP herunterladen, `Components/LiveSplit.Coop.dll` in den `Components`-Ordner von LiveSplit kopieren, dann Control → Coop Relay hinzufügen und die Rolle wählen. Per Rechtsklick **Coop...** eine Lobby erstellen oder beitreten. Ausführlich: [docs/setup.de.md](docs/setup.de.md).
+
+## How it fits together
+
 ```text
 Host LiveSplit + Coop component ──WSS──┐
-                                      │ Self-hosted relay
-Viewer LiveSplit + Coop component ─WSS─┤ (Linux / Node / Docker)
+                                      │ Relay: community relay on Cloudflare,
+Viewer LiveSplit + Coop component ─WSS─┤ or your own (Cloudflare / Node / Docker)
 Viewer LiveSplit + Coop component ─WSS─┘
 ```
 
@@ -23,9 +48,7 @@ Viewer LiveSplit + Coop component ─WSS─┘
 - Outbound connections only on player PCs. No public LiveSplit control port.
 - The current lobby and its keys are stored in `coop-local.json` next to `LiveSplit.exe` using Windows DPAPI, tied to the Windows user and machine, and reconnect automatically on start. Layouts hold only the role.
 
-## Build the component (Windows)
-
-To use a prebuilt release, extract `LiveSplit.Coop-v1.0.0.zip` and copy its `Components/LiveSplit.Coop.dll` into your LiveSplit installation. This is an **add-on**, not a complete LiveSplit distribution. Windows 10/11 with .NET Framework 4.8 and LiveSplit 1.8.34/1.8.37 are the tested client environment. Nothing else is installed on player PCs: right-click the timer and open **Coop...**: the host creates a lobby (name, optional password) and shares name and password, teammates pick it from the public list or type the name and click **Join**. The community relay can technically see timer data (splits, PBs, game, category); groups that prefer not to use it can run their own relay. See the [quick start](docs/quickstart.md).
+## Build from source (developers)
 
 The public archives contain no game autosplitters, personal splits/PBs, live room keys or hosted service credentials. Bring your own host splits and autosplitter. The relay is game-independent; RV There Yet was the initial development use case.
 
@@ -35,7 +58,7 @@ Use Windows PowerShell 5.1 and an installed LiveSplit release. No .NET SDK or Vi
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -LiveSplitPath 'C:\path\to\LiveSplit'
 ```
 
-Output: `dist/LiveSplit.Coop.dll`. Copy this DLL into **a test copy** of LiveSplit's `Components` folder, restart that copy, then add **Control → Coop Relay** to the layout. Choose the role (Host or Viewer) in the component settings, then right-click the timer and open **Coop...** to create or join a lobby. The lobby is remembered and reconnects automatically when LiveSplit starts; see the [quick start](docs/quickstart.md).
+Output: `dist/LiveSplit.Coop.dll`. To test it, copy this DLL into **a test copy** of LiveSplit's `Components` folder and restart that copy. The usage steps are in the [quick start](#quick-start-no-build-needed) and [docs/quickstart.md](docs/quickstart.md).
 
 The host keeps their existing autosplitter. Viewers must remove Scriptable Auto Splitter from their viewer layout and deactivate the registered autosplitter. Joining as viewer is refused while a local attempt or an autosplitter is active. Use a test copy first; rooms stored in layouts by older versions move to `coop-local.json` once, and no split files are migrated.
 
