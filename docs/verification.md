@@ -1,5 +1,7 @@
 # Verification
 
+> Note: this file documents the earlier invitation-based version (Host, Join and Copy invite context-menu entries, `lscoop:1:` codes). Current usage, with the single **Coop...** window and lobbies, is described in [quickstart.md](quickstart.md). The entries below are kept as history.
+
 Verified on Windows with installed LiveSplit 1.8.34 and Node 25.9.0. The relay targets Node 22+; the Dockerfile selects Node 24 LTS. On 2026-09-27 it was also deployed and checked on Linux using rootless Docker/cgroup v2 and a publicly trusted TLS endpoint on a dedicated port.
 
 `npm test`: thirteen integration/validation tests covering multiple viewers, late joining, exact nullable RTA data, host/viewer authorization, outdated-protocol rejection, host takeover by a newer connection (4001), takeover at the global connection limit without admitting extra viewers, the reserved host slot, eviction of silent unauthenticated sockets, clock ticks and their merge into the cached snapshot, tick rejection before a snapshot or against a finish, disconnect/offline final cache, host reconnection, old sequence rejection, malformed messages and the health endpoint. The TLS test checks trusted-CA validation, WSS authentication, live certificate rotation without dropping an existing socket, rejection of the old certificate, and retention of working TLS after a malformed replacement. The TLS test requires OpenSSL (Git for Windows includes it).

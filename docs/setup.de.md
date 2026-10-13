@@ -18,12 +18,22 @@ LiveSplit Coop ist ein selbst hostbarer Coop-Timer. Der Spielhost misst; alle Mi
 - Nach **Lobby verlassen** öffnet **Lobby <Name> wieder öffnen** dieselbe Lobby erneut.
 - Die Statuszeile im Layout lautet `<Lobby> · Host · N online`.
 
+![Coop-Fenster des Hosts vor dem Erstellen einer Lobby](images/de/coop-host-create.png)
+
+![Coop-Fenster des Hosts mit verbundener Lobby](images/de/coop-connected.png)
+
+![Statuszeile des Hosts im Layout](images/de/status-line.png)
+
 ### Viewer
 
 - Eigenes Layout mit Rolle **Viewer**, ohne Scriptable Auto Splitter. Den registrierten Autosplitter außerdem deaktivieren, lokale Timer-Hotkeys abschalten und einen laufenden lokalen Versuch zurücksetzen. Sonst wird der Beitritt abgelehnt.
 - Im Coop-Fenster eine Lobby aus der **öffentlichen Liste** wählen (**Aktualisieren** lädt neu) oder den Namen eintippen, Passwort eingeben und **Beitreten**.
 - Mögliche Meldungen: „Passwort falsch“, „Lobby nicht gefunden oder abgelaufen“ und „Zu viele Fehlversuche. Eine Minute warten.“ (10 falsche Passwörter innerhalb einer Minute sperren eure Adresse für den Rest der Minute in dieser Lobby).
 - Die Statuszeile lautet `<Lobby> · folgt Host`.
+
+![Coop-Fenster eines Viewers mit öffentlicher Lobbyliste](images/de/coop-viewer-join.png)
+
+_Die Screenshots wurden mit Beispieldaten von `scripts/render-doc-screenshots.ps1` erzeugt._
 
 ### Gemerkte Lobby
 

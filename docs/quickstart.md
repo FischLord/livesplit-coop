@@ -14,12 +14,22 @@
 3. The name and password are copied to the clipboard for your teammates. Send them privately. **Copy name and password** copies them again. Never post a password you want to keep private.
 4. After **Leave lobby**, **Reopen lobby <name>** brings the same lobby back. The status line in the layout reads `<lobby> · Host · N online`.
 
+![Coop window of the host before creating a lobby](images/en/coop-host-create.png)
+
+![Coop window of the host with a connected lobby](images/en/coop-connected.png)
+
+![Layout status line of the host](images/en/status-line.png)
+
 ### Viewers
 
 1. Use a separate layout with role **Viewer**, without a Scriptable Auto Splitter component, and deactivate the registered autosplitter in Edit Splits. Disable local timer-control hotkeys and reset any local attempt before joining.
 2. In the coop window pick a lobby from the **public list** (**Refresh** reloads it) or type the name the host sent you. Enter the password, if there is one, and click **Join**.
 3. Possible messages: *Wrong password*, *Lobby not found or expired*, *Too many failed attempts. Wait a minute.* (10 wrong passwords within a minute lock your address out of that lobby for the rest of the minute).
 4. The status line reads `<lobby> · following host`. Viewers do not select Duo/Trio or match the host's split file; the visible layout stays their own while the host supplies run and timing data.
+
+![Coop window of a viewer with the public lobby list](images/en/coop-viewer-join.png)
+
+_Screenshots were generated with example data by `scripts/render-doc-screenshots.ps1`._
 
 ### During the run
 

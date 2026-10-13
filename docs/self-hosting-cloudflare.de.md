@@ -65,6 +65,10 @@ Der erste Aufruf liefert `ok : True`. Der zweite liefert die Lobbyliste, die anf
 
 1. Rechtsklick auf den Timer, dann **Coop...** und **Advanced** öffnen.
 2. Bei **Server** die Adresse `wss://…/coop` eintragen. Alle in der Gruppe müssen denselben Server verwenden.
+
+![Erweitert-Bereich des Coop-Fensters mit dem Serverfeld](images/de/coop-advanced.png)
+
+_Die Screenshots wurden mit Beispieldaten von `scripts/render-doc-screenshots.ps1` erzeugt._
 3. Lobbys anlegen oder beitreten, wie in der [Schnellstart-Anleitung](quickstart.md) beschrieben.
 
 ## 6. Einstellungen

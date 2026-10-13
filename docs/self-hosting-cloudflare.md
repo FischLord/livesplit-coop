@@ -65,6 +65,10 @@ The first call returns `ok : True`. The second returns the lobby list, which is 
 
 1. Right-click the timer and open **Coop...**, then **Advanced**.
 2. Set **Server** to your `wss://…/coop` address. Everyone in the group must use the same server.
+
+![Advanced section of the coop window with the server field](images/en/coop-advanced.png)
+
+_Screenshots were generated with example data by `scripts/render-doc-screenshots.ps1`._
 3. Create or join lobbies as described in the [quick start](quickstart.md).
 
 ## 6. Settings
