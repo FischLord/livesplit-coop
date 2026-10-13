@@ -85,16 +85,16 @@ namespace LiveSplit.Coop {
         public string OriginalFilePath { get { return original.FilePath; } }
         Snapshot latest;
         public Mirror(LiveSplitState state) {
-            if(state.CurrentPhase!=TimerPhase.NotRunning) throw new InvalidOperationException("Stop/reset the local timer before joining as viewer.");
+            if(state.CurrentPhase!=TimerPhase.NotRunning) throw new InvalidOperationException(Texts.T("viewer.stopTimer"));
             this.state=state;original=expected=state.Run;method=state.CurrentTimingMethod;comparison=state.CurrentComparison;
         }
         // Loading or editing splits replaces state.Run. Never write host data into a run the mirror does not own.
         void EnsureOwned() {
-            if(!Object.ReferenceEquals(state.Run,expected)) throw new InvalidOperationException("Splits were changed locally; viewer mode stopped.");
+            if(!Object.ReferenceEquals(state.Run,expected)) throw new InvalidOperationException(Texts.T("viewer.splitsChanged"));
         }
         static Time Time(long? r,long? g) { return new Time(r.HasValue?(TimeSpan?)TimeSpan.FromTicks(r.Value):null,g.HasValue?(TimeSpan?)TimeSpan.FromTicks(g.Value):null); }
         public void Adopt(Snapshot s) {
-            if(!s.Valid()) throw new ArgumentException("Invalid snapshot");
+            if(!s.Valid()) throw new InvalidOperationException(Texts.T("viewer.invalidSnapshot"));
             EnsureOwned();
             bool rebuild=runId!=s.runId || latest==null || latest.segments.Length!=s.segments.Length;
             if(rebuild) {
@@ -127,7 +127,7 @@ namespace LiveSplit.Coop {
         // Clock-only update: no run rebuild and no RunManuallyModified event.
         public void Advance(Snapshot s) {
             if(latest==null || s.runId!=latest.runId || s.attemptId!=latest.attemptId) { Adopt(s);return; }
-            if(!s.Valid()) throw new ArgumentException("Invalid snapshot");
+            if(!s.Valid()) throw new InvalidOperationException(Texts.T("viewer.invalidSnapshot"));
             EnsureOwned();latest=s;
         }
         public void Render(double elapsedMs,bool stale) {

@@ -47,7 +47,7 @@ namespace LiveSplit.Coop {
         long lastMessage;
         volatile int generation;
         volatile bool ready,hostOnline,replaced,unknownRoom;
-        volatile string status="Connecting";
+        volatile string status=Texts.T("relay.connecting");
         volatile bool policyClose;
         volatile int viewers=-1;
         volatile string stopReason;
@@ -68,9 +68,9 @@ namespace LiveSplit.Coop {
             var server=new Uri(url);
             if((server.Scheme!="wss" && !(server.Scheme=="ws" && server.IsLoopback)) || server.AbsolutePath!="/coop" ||
                !string.IsNullOrEmpty(server.Query) || !string.IsNullOrEmpty(server.UserInfo) || !string.IsNullOrEmpty(server.Fragment))
-                throw new ArgumentException("Use wss://your-server/coop (ws:// only on loopback).");
+                throw new ArgumentException(Texts.T("relay.badAddress"));
             if(!System.Text.RegularExpressions.Regex.IsMatch(room,"^[a-zA-Z0-9_-]{1,64}$") ||
-               (role!="host" && role!="viewer") || key.Length<32 || key.Length>256) throw new ArgumentException("Invalid room, role or access key.");
+               (role!="host" && role!="viewer") || key.Length<32 || key.Length>256) throw new ArgumentException(Texts.T("relay.badRoom"));
             // Protocol v3 addresses the room in the path so a relay can route before the upgrade; the key stays in hello.
             uri=new Uri(server,"/coop/"+room);this.role=role;this.key=key;
         }
@@ -79,7 +79,7 @@ namespace LiveSplit.Coop {
         // Returns false when the connection changed since the caller read Generation; nothing is queued then.
         public bool Publish(Snapshot s,bool complete,int forGeneration) {
             string json=complete?Json().Serialize(s):Json().Serialize(new { type="tick",v=Protocol,seq=s.seq,realTicks=s.realTicks,gameTicks=s.gameTicks,gamePaused=s.gamePaused });
-            if(Encoding.UTF8.GetByteCount(json)>262144) throw new ArgumentException("Run exceeds relay message limit.");
+            if(Encoding.UTF8.GetByteCount(json)>262144) throw new ArgumentException(Texts.T("relay.tooLarge"));
             lock(gate) {
                 if(forGeneration!=generation) return false;
                 if(complete) { pendingSnapshot=json;pendingTick=null; } else pendingTick=json;
@@ -112,12 +112,12 @@ namespace LiveSplit.Coop {
         // next attempt may simply beat the clock. Everything else needs the user to fix key/version/config.
         static bool PolicyTerminal(string reason) { return reason!="Room occupied or full" && reason!="Authentication required"; }
         static string PolicyStatus(string reason) {
-            if(reason=="Authentication failed") return "Stopped: authentication failed - check the room key.";
-            if(reason!=null && reason.StartsWith("Unsupported protocol version",StringComparison.Ordinal)) return "Stopped: unsupported protocol version - update LiveSplit Coop.";
-            if(reason=="Room occupied or full") return "Room occupied or full; retrying";
-            if(reason=="Authentication required") return "Relay closed before credentials arrived; retrying";
-            if(reason=="Too many attempts") return "Stopped: too many failed attempts - wait a minute.";
-            return "Stopped: relay rejected the connection.";
+            if(reason=="Authentication failed") return Texts.T("relay.authFailed");
+            if(reason!=null && reason.StartsWith("Unsupported protocol version",StringComparison.Ordinal)) return Texts.T("relay.protocol");
+            if(reason=="Room occupied or full") return Texts.T("relay.occupied");
+            if(reason=="Authentication required") return Texts.T("relay.noCredentials");
+            if(reason=="Too many attempts") return Texts.T("relay.tooMany");
+            return Texts.T("relay.rejected");
         }
         static string PolicyCode(string reason) {
             if(reason=="Authentication failed") return "auth_failed";
@@ -139,7 +139,7 @@ namespace LiveSplit.Coop {
                             if(code==Replaced) replaced=true;
                             else if(code==UnknownRoom) unknownRoom=true;
                             else if(code==(int)WebSocketCloseStatus.PolicyViolation) { policyClose=true;policyReason=read.CloseStatusDescription; }
-                            status="Connection closed; retrying";return;
+                            status=Texts.T("relay.closedRetry");return;
                         }
                         if(read.MessageType!=WebSocketMessageType.Text || stream.Length+read.Count>262144) throw new InvalidDataException();
                         stream.Write(buffer,0,read.Count);
@@ -148,7 +148,7 @@ namespace LiveSplit.Coop {
                     Interlocked.Add(ref receivedBytes,stream.Length);Interlocked.Increment(ref receivedMessages);
                     var json=Json();var msg=json.Deserialize<Dictionary<string,object>>(Encoding.UTF8.GetString(stream.ToArray()));
                     object kind;if(msg==null || !msg.TryGetValue("type",out kind)) throw new InvalidDataException();
-                    if((string)kind=="ready") { lock(gate) generation++;ready=true;status="Connected";phase=RelayPhase.Connected;Trace("ready"); }
+                    if((string)kind=="ready") { lock(gate) generation++;ready=true;status=Texts.T("relay.connected");phase=RelayPhase.Connected;Trace("ready"); }
                     else if((string)kind=="host") { hostOnline=Convert.ToBoolean(msg["online"]);Trace(hostOnline?"host_online":"host_offline"); }
                     else if((string)kind=="peers") { viewers=Convert.ToInt32(msg["viewers"]); }
                     else if((string)kind=="state") {
@@ -176,28 +176,28 @@ namespace LiveSplit.Coop {
                 using(var linked=CancellationTokenSource.CreateLinkedTokenSource(cancel.Token)) {
                     socket=ws;
                     try {
-                        status="Connecting";phase=RelayPhase.Connecting;Trace("connecting");
+                        status=Texts.T("relay.connecting");phase=RelayPhase.Connecting;Trace("connecting");
                         using(var timeout=CancellationTokenSource.CreateLinkedTokenSource(linked.Token)) {
                             timeout.CancelAfter(10000);
                             await ws.ConnectAsync(uri,timeout.Token).ConfigureAwait(false);
                         }
-                        phase=RelayPhase.Joining;status="Joining room";Trace("joining");
+                        phase=RelayPhase.Joining;status=Texts.T("relay.joining");Trace("joining");
                         Interlocked.Exchange(ref lastMessage,DateTime.UtcNow.Ticks);
                         await Send(ws,Json().Serialize(new { type="hello",v=Protocol,role=role,key=key }),linked.Token).ConfigureAwait(false);
                         var reader=Reader(ws,linked.Token);var writer=Writer(ws,linked.Token);
                         var first=await Task.WhenAny(reader,writer).ConfigureAwait(false);
                         linked.Cancel();ws.Abort();
-                        if(first.IsFaulted) { CoopDiagnostics.Error("transport",first.Exception);status=first.Exception.InnerException is TimeoutException?"Relay not responding; retrying":"Connection lost; retrying"; }
+                        if(first.IsFaulted) { CoopDiagnostics.Error("transport",first.Exception);status=first.Exception.InnerException is TimeoutException?Texts.T("relay.noResponse"):Texts.T("relay.lost"); }
                         try { await Task.WhenAll(reader,writer).ConfigureAwait(false); } catch(Exception) { }
                     } catch(OperationCanceledException) { if(!cancel.IsCancellationRequested)Trace("connect_timeout"); }
-                    catch(Exception e) { CoopDiagnostics.Error("connect",e);status="Connection lost; retrying"; }
+                    catch(Exception e) { CoopDiagnostics.Error("connect",e);status=Texts.T("relay.lost"); }
                     finally { ready=false;hostOnline=false;socket=null; }
                 }
                 // Two hosts would otherwise keep replacing each other.
-                if(replaced) { Trace("host_replaced");stopReason="replaced";phase=RelayPhase.Stopped;status="Stopped: another host connection took over this room";return; }
-                if(unknownRoom) { Trace("unknown_room");stopReason="unknown_room";phase=RelayPhase.Stopped;status="Stopped: room expired or unknown - check the room or create a new one.";return; }
+                if(replaced) { Trace("host_replaced");stopReason="replaced";phase=RelayPhase.Stopped;status=Texts.T("relay.replaced");return; }
+                if(unknownRoom) { Trace("unknown_room");stopReason="unknown_room";phase=RelayPhase.Stopped;status=Texts.T("relay.unknownRoom");return; }
                 if(policyClose) {
-                    status=PolicyStatus(policyReason);CoopDiagnostics.Write("policy_close",new { connection=diagnosticId,reason=status });
+                    status=PolicyStatus(policyReason);CoopDiagnostics.Write("policy_close",new { connection=diagnosticId,reason=policyReason });
                     bool terminal=PolicyTerminal(policyReason);string reasonCode=policyReason;
                     policyClose=false;policyReason=null;
                     if(terminal) { Trace("policy_stopped");stopReason=PolicyCode(reasonCode);phase=RelayPhase.Stopped;return; }

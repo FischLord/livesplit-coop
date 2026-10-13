@@ -12,8 +12,8 @@ using LiveSplit.UI;
 using LiveSplit.UI.Components;
 
 [assembly: ComponentFactory(typeof(LiveSplit.Coop.Factory))]
-[assembly: System.Reflection.AssemblyVersion("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("0.1.0-beta.3")]
+[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.0.0")]
 [assembly: System.Reflection.AssemblyTitle("LiveSplit Coop")]
 
 namespace LiveSplit.Coop {
@@ -24,7 +24,7 @@ namespace LiveSplit.Coop {
         public string UpdateName { get { return ComponentName; } }
         public string XMLURL { get { return ""; } }
         public string UpdateURL { get { return ""; } }
-        public Version Version { get { return new Version(0,1,0); } }
+        public Version Version { get { return new Version(1,0,0); } }
         public IComponent Create(LiveSplitState state) { return new CoopComponent(state); }
     }
     // Kept apart from other failures so the HUD can show a short label while settings show the full instructions.
@@ -355,12 +355,12 @@ namespace LiveSplit.Coop {
         public float PaddingRight { get { return 0; } }
         public IDictionary<string,Action> ContextMenuControls { get { return new Dictionary<string,Action> { { Texts.T("menu.coop"),()=>OpenWindow(state.Form) } }; } }
         public void ExportDiagnostics(IWin32Window owner) {
-            using(var dialog=new SaveFileDialog { Title="Export Coop diagnostics",Filter="Diagnostic log (*.jsonl)|*.jsonl",DefaultExt="jsonl",AddExtension=true,
+            using(var dialog=new SaveFileDialog { Title=Texts.T("export.title"),Filter=Texts.T("export.filter"),DefaultExt="jsonl",AddExtension=true,
                 FileName="LiveSplit-Coop-diagnostics-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".jsonl" }) {
                 if(dialog.ShowDialog(owner)!=DialogResult.OK)return;
                 try { CoopDiagnostics.Write("export_requested",new { component=diagnosticId });CoopDiagnostics.Export(dialog.FileName);
-                    MessageBox.Show(owner,"Diagnostics exported. This file contains connection and timer events, without room keys or invitation links.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Information);
-                } catch(Exception e) { CoopDiagnostics.Error("export",e);MessageBox.Show(owner,"Could not export diagnostics. Choose a writable destination and check free disk space.","Coop diagnostics",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
+                    MessageBox.Show(owner,Texts.T("export.done"),Texts.T("export.caption"),MessageBoxButtons.OK,MessageBoxIcon.Information);
+                } catch(Exception e) { CoopDiagnostics.Error("export",e);MessageBox.Show(owner,Texts.T("export.failed"),Texts.T("export.caption"),MessageBoxButtons.OK,MessageBoxIcon.Warning); }
             }
         }
         void Draw(Graphics g,float width,float height) {

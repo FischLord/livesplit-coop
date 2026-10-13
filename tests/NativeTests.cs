@@ -248,7 +248,7 @@ public static class NativeTests {
         using(var unknown=new RelayConnection(url,"nosuchroom","viewer",viewerKey)) {
             unknown.Start();
             Wait(()=>unknown.Phase==RelayPhase.Stopped,"an unknown room reaches a terminal phase");
-            Check(unknown.Status.Contains("room expired or unknown"),"an unknown or expired room (4004) stops with a clear hint instead of retrying");
+            Check(unknown.Status==Texts.T("relay.unknownRoom"),"an unknown or expired room (4004) stops with a clear hint instead of retrying");
         }
         Console.WriteLine("Native checks passed: "+passed);
     }
