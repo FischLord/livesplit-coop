@@ -237,8 +237,13 @@ namespace LiveSplit.Coop {
         }
         public static string Info(string lobby,string secret) { return secret.Length>0?Texts.T("lobby.passwordInfo",lobby,secret):Texts.T("lobby.nameInfo",lobby); }
         static bool Copy(string text) {
-            try { var data=new DataObject();data.SetText(text,TextDataFormat.UnicodeText);Clipboard.SetDataObject(data,true,3,75);return true; }
+            return TryClipboard(()=>{ var data=new DataObject();data.SetText(text,TextDataFormat.UnicodeText);Clipboard.SetDataObject(data,true,3,75); });
+        }
+        // A busy clipboard (ExternalException) or a non-STA thread (ThreadStateException) is no reason to report a failed lobby.
+        public static bool TryClipboard(Action write) {
+            try { write();return true; }
             catch(ExternalException) { return false; }
+            catch(System.Threading.ThreadStateException) { return false; }
         }
         void CopyInfo() {
             string text=session.ShareText;

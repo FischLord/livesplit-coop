@@ -81,6 +81,9 @@ public static class LobbyTests {
         Check(legacyViewer.protectedHostKey=="" && LocalState.Unprotect(legacyViewer.protectedViewerKey)==new string('k',43),"legacy viewer room keeps the viewer key");
     }
     static void TextTests() {
+        Check(!CoopWindow.TryClipboard(()=>{ throw new System.Threading.ThreadStateException(); }),"a clipboard thread-state failure counts as a busy clipboard");
+        Check(!CoopWindow.TryClipboard(()=>{ throw new System.Runtime.InteropServices.ExternalException(); }),"a busy clipboard counts as not copied");
+        Check(CoopWindow.TryClipboard(()=>{ }),"a working clipboard counts as copied");
         Texts.German=true;
         Check(Texts.T("lobby.wrongPassword")=="Passwort falsch.","German text");
         Check(Texts.T("status.online",2)=="2 online","formatted text");
