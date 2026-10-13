@@ -4,37 +4,53 @@
 
 1. Install LiveSplit separately (tested: 1.8.34 on Windows 10/11, .NET Framework 4.8). Back up your splits/layout and try the beta in a separate LiveSplit copy first.
 2. Download the component ZIP from this repository's Releases and copy `Components/LiveSplit.Coop.dll` into LiveSplit's `Components` directory. Restart LiveSplit. The archive does not include LiveSplit itself.
-3. The server field is preset to the community relay (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, a closed beta without availability guarantee). A group can instead run its own relay: follow [deployment](deployment.md) and use `wss://your-domain/coop`.
-4. In LiveSplit, right-click **Edit Layout**, add **Control → Coop Relay**, then open its settings. **Host:** click **Create room (host)**; room, role and host key are filled in, and an invite code (`lscoop:1:…`) appears. Click **Copy** and send the invite to your teammates privately. **Teammates:** copy the invite, then click **Join with invite** (or paste it into the Room field). Save the layout and click **Connect**. The invite contains only the viewer key; never share the host key. On a relay without room creation, enter the operator's room and the key for your role by hand.
-5. **Host:** load your own splits and autosplitter, choose **Host**, and connect. In a coop game this should be the person hosting the game lobby. Wait for **Host connected**.
-6. **Viewers:** use a separate layout without a Scriptable Auto Splitter and deactivate the registered autosplitter in Edit Splits. Disable local timer-control hotkeys. Reset any local attempt before joining. Choose **Viewer** and connect; wait for **Following host**. Viewers do not select Duo/Trio or match the host's split file. Their visible layout remains their own; the host supplies the run and timing data.
-7. Start the run on the host. Start, completed splits, pause, undo, reset and finish propagate. Ended times remain visible until the host resets or the viewer disconnects. The host uses **Save Splits** to preserve results; viewers do not automatically archive host history.
+3. In LiveSplit, right-click **Edit Layout**, add **Control → Coop Relay**, open its settings and choose the **Role** of this layout: **Host** (this timer measures) or **Viewer** (follow the host). The role belongs to the layout, so the host and the teammates each use their own layout. Close the settings; you do not need to save anything else for coop.
+4. Right-click the timer and choose **Coop...**. This one entry opens the coop window.
 
-Use **Coop: Reconnect / Coop: Disconnect** in the LiveSplit context menu after setup. Connections do not start automatically after launching LiveSplit. On network loss or a temporarily full room the component retries; invalid room credentials or an incompatible protocol require you to correct the settings and connect again. A second client using the host key takes over the host slot, stopping the previous host connection. Running digits can lag by network delay; completed split and final times copy the host's exact values.
+### Host
 
-Keys stored in layouts are encrypted for that Windows account and machine. On another PC, enter that PC's role key again. Do not publish initialized layouts or private launcher packages. No VPN or router port-forwarding is required on player PCs. The relay operator exposes only the chosen TLS endpoint.
+1. Load your own splits and autosplitter. In a coop game this should be the person hosting the game lobby.
+2. In the coop window enter a **lobby name** (3-32 characters: `a-z`, `0-9`, `-`, `_`; uppercase is lowercased), an optional **password**, and decide whether to **show in the public list**. Click **Create lobby**.
+3. The name and password are copied to the clipboard for your teammates. Send them privately. **Copy name and password** copies them again. Never post a password you want to keep private.
+4. After **Leave lobby**, **Reopen lobby <name>** brings the same lobby back. The status line in the layout reads `<lobby> · Host · N online`.
+
+### Viewers
+
+1. Use a separate layout with role **Viewer**, without a Scriptable Auto Splitter component, and deactivate the registered autosplitter in Edit Splits. Disable local timer-control hotkeys and reset any local attempt before joining.
+2. In the coop window pick a lobby from the **public list** (**Refresh** reloads it) or type the name the host sent you. Enter the password, if there is one, and click **Join**.
+3. Possible messages: *Wrong password*, *Lobby not found or expired*, *Too many failed attempts. Wait a minute.* (10 wrong passwords within a minute lock your address out of that lobby for the rest of the minute).
+4. The status line reads `<lobby> · following host`. Viewers do not select Duo/Trio or match the host's split file; the visible layout stays their own while the host supplies run and timing data.
+
+### During the run
+
+Start the run on the host. Start, completed splits, pause, undo, reset and finish propagate. Ended times stay visible until the host resets or the viewer leaves. Running digits can lag by network delay; completed split and final times copy the host's exact values. A second client using the lobby's host credentials takes over the host slot and stops the previous host connection.
+
+### Remembered lobby and reconnecting
+
+The current lobby is saved in `coop-local.json` next to `LiveSplit.exe`; the keys in it are encrypted with Windows DPAPI for this Windows account and machine. LiveSplit reconnects automatically on start, and the component retries after network loss or a temporarily full lobby. **Save Layout** is no longer needed for coop. Rooms that older versions stored in layouts are moved to `coop-local.json` once. Layouts no longer contain keys. On another PC, join the lobby again with name and password. Do not publish `coop-local.json`.
+
+### Viewers keep their splits
+
+While a viewer follows the host, attempts they watch are recorded into the viewer's own splits file: a matching profile from a `coop-profiles.json` pack if there is one, otherwise `Splits/Coop/<game>/<category>.lss` next to LiveSplit. If the host's PB is faster, it is taken over on first contact. A viewer's attempt is recorded only when it was followed while connected. If a host timer on the same PC has that file open, the attempt goes to `Splits/Coop/Pending/` instead and the coop window says so.
+
+### Advanced
+
+Open **Advanced** in the coop window:
+
+- **Server**: the community relay is preset (`wss://livesplit-coop-relay.janneck.workers.dev/coop`, a closed beta without availability guarantee). A group can run its own relay for free on Cloudflare: [Run your own relay](self-hosting-cloudflare.md), or follow [deployment](deployment.md) for Linux. Everyone in the group needs the same server address. The relay can technically see timer data (splits, PBs, game, category).
+- **Join with invitation** (viewers): paste an older `lscoop:1:` invitation code.
+- **Export diagnostics...**: see [diagnostics](diagnostics.md).
+
+### Profile packs (for game package authors)
+
+A game package can ship a `coop-profiles.json` next to its files that maps a game/category selection to splits and layout. The host shows the matching profile label in public lists, and viewers record into the matching splits. Format: [lobbies design, section 3.3](superpowers/specs/2026-10-12-lobbies-design.md).
+
+### Invitation codes (older versions)
+
+Versions before the lobby flow used `lscoop:1:...` invitation codes for rooms. They still work: viewers paste them under **Advanced → Join with invitation**. The code contains only the viewer key; never share a host key. Lobbies need a relay that supports them (the community relay and the Cloudflare guide do); other relays answer with *This server has no lobbies*, and invitations are then the way in.
+
+Keys are stored only on the player's PC. No VPN or router port-forwarding is required on player PCs. The relay operator exposes only the chosen TLS endpoint.
 
 ## Deutsch
 
-1. LiveSplit separat installieren (getestet: 1.8.34, Windows 10/11, .NET Framework 4.8). Zuerst eine Kopie mit gesicherten Splits/Layouts verwenden.
-2. Aus dem Komponenten-ZIP `Components/LiveSplit.Coop.dll` nach `Components` kopieren und LiveSplit neu starten.
-3. Als Server ist der Community-Relay voreingestellt (geschlossene Beta ohne Verfügbarkeitsgarantie). Wer lieber selbst betreibt, folgt [Deployment](deployment.md) und trägt `wss://eure-domain/coop` ein.
-4. **Edit Layout → Control → Coop Relay** hinzufügen. **Host:** **Create room (host)** klicken; Raum, Rolle und Host-Schlüssel werden ausgefüllt, darunter erscheint ein Einladungscode (`lscoop:1:…`). Mit **Copy** kopieren und privat an die Mitspieler schicken. **Mitspieler:** Einladungscode kopieren und **Join with invite** klicken (oder den Code ins Raumfeld einfügen). Layout speichern und **Connect** drücken. Der Code enthält nur den Viewer-Schlüssel; den Host-Schlüssel nie weitergeben. Bei einem Relay ohne Raum-Erstellung Raum und Schlüssel vom Betreiber von Hand eintragen.
-5. Nur der **Host** verwendet seine Splits und seinen Autosplitter. **Viewer** deaktivieren ihren Autosplitter und lokale Timer-Hotkeys; Duo/Trio und Splits müssen sie nicht auswählen.
-6. Sobald beim Host **Host connected** und bei Viewern **Following host** erscheint, kann der Host starten. Bei Netzwerkausfall oder vorübergehend vollem Raum verbindet sich die Komponente erneut; bei falschem Zugang oder inkompatiblem Protokoll Angaben korrigieren und nochmals **Connect** drücken. Der Host speichert die Ergebnisse anschließend mit **Save Splits**.
-
-Die Beta enthält keine RV-Autosplitter, privaten PBs oder Zugangsschlüssel. Ein vollständiger echter Coop-Spielrun ist noch nicht verifiziert. Weitere Grenzen stehen in der README.
-
-## Quick actions in the timer context menu
-
-- **Coop: Host...** opens a small choice between reusing saved host credentials and creating a room. Both connect immediately. Creating a room automatically copies the viewer invitation and shows it in a compact confirmation dialog; clipboard contention offers manual copying instead of a crash.
-- **Coop: Join...** opens an invitation field, prefilled only when the clipboard contains a valid invite. Nothing connects until Join is confirmed. Invalid invitations, local running attempts and active autosplitters are refused without replacing credentials.
-- **Coop: Copy invite** copies the current host's viewer invitation and briefly confirms it in the timer. If the clipboard is busy, a small dialog exposes the selectable code. Manually configured rooms without a saved viewer key cannot reconstruct an invitation.
-- **Coop: Reconnect** connects using the stored room and role after a deliberate disconnect. **Coop: Disconnect** retains the saved room; viewers recover their original local run.
-
-Host/Join mark changed layout settings as unsaved. Use **Save Layout** to retain room credentials and the host's viewer invitation for later sessions. The advanced settings panel still supports a custom server and manual keys; it is no longer required for the normal flow.
-
-Deutsch: Im Rechtsklick-Menü **Coop: Host...** für gespeicherten/neuen Raum oder **Coop: Join...** für eine Einladung wählen. Beide verbinden direkt nach Bestätigung. Neue Einladungen werden automatisch kopiert; **Copy invite** kopiert sie erneut. **Save Layout** speichert den Raum. **Reconnect** und **Disconnect** bleiben separat verfügbar.
-### Local diagnostic build
-
-The local diagnostics build adds **Coop: Export diagnostics...** to the right-click menu. Logs are written automatically beside LiveSplit under Logs/Coop; exports contain retained sessions and never include invitation codes or room keys. See [diagnostics](diagnostics.md) for retention and recorded fields.
+Die vollständige deutsche Anleitung steht in [setup.de.md](setup.de.md). Kurzfassung: LiveSplit separat installieren, `Components/LiveSplit.Coop.dll` nach `Components` kopieren, im Layout **Control → Coop Relay** hinzufügen und die Rolle (Host oder Viewer) wählen, dann per Rechtsklick **Coop...** öffnen. Der Host legt eine Lobby an (Name, optional Passwort) und schickt Name und Passwort an die Mitspieler; Mitspieler wählen die Lobby aus der Liste oder tippen den Namen und treten bei.

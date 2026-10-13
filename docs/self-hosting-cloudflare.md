@@ -37,12 +37,12 @@ Run these in PowerShell:
 ```powershell
 git clone https://github.com/FischLord/livesplit-coop.git
 cd livesplit-coop\relay-cloudflare
-npm ci
+npm ci --ignore-scripts
 npx wrangler login
 npm run deploy
 ```
 
-`npx wrangler login` opens a browser window; sign in and allow access. `npm run deploy` runs `wrangler deploy --env=""`.
+`npx wrangler login` opens a browser window; sign in and allow access. `npm run deploy` runs `wrangler deploy --env=""`. `--ignore-scripts` stops the installed packages from running their own install scripts; the relay does not need them.
 
 Optional: before deploying, you can change `"name"` in `wrangler.jsonc` (default `livesplit-coop-relay`). The name becomes part of the URL, so choose it once.
 
@@ -98,13 +98,13 @@ Cloudflare's numbers change from time to time. The figures below are as of Octob
 
 The counters reset daily at 00:00 UTC. When a limit is reached, further requests fail until the reset. The free plan never charges you automatically. If you need more, the paid Workers plan starts at US$5 per month.
 
-**Capacity estimate** (derived from the component's behaviour, not measured on Cloudflare): a connected host sends about 4 time updates per second, which is roughly 14,400 messages per hour, or about 720 billed Durable Object requests per hour. Viewers cost almost nothing: receiving is free and joining is a single request. The daily budget therefore covers roughly 130 host-hours per day, for example:
+**Capacity estimate** (derived from the component's behaviour, not measured on Cloudflare): while connected, a host sends a time update every 250 ms (4 per second, also while the timer is stopped) plus an application-level ping every 5 seconds. That is about 15,000 incoming messages per hour, or roughly 750 billed Durable Object requests per hour. Every viewer sends only a ping every 5 seconds, about 36 billed requests per hour; receiving is free. A lobby with a host and 5 viewers therefore costs about 940 requests per hour and a full one (11 viewers) about 1,150. The daily budget of 100,000 covers roughly:
 
-- about 5 lobbies connected around the clock,
-- about 45 lobbies for a 3-hour evening,
-- about 130 one-hour sessions.
+- 130 host-hours per day for lobbies without viewers,
+- about 100 lobby-hours per day with 5 viewers each,
+- about 85 lobby-hours per day with full lobbies, for example 28 full lobbies for a 3-hour evening.
 
-The estimate leaves out application-level pings (one every 5 seconds per client), which add a few percent. Idle lobbies cost only a few KB of storage. New lobbies are limited by `ROOMS_PER_DAY` and the per-IP rate limit. Lobbies that have not been used for 7 days are deleted automatically. A lobby holds up to 12 people: 1 host and 11 viewers.
+Joining, leaving and the public list add a few requests each and are negligible by comparison. Idle lobbies cost only a few KB of storage. New lobbies are limited by `ROOMS_PER_DAY` and the per-IP rate limit. Lobbies that have not been used for 7 days are deleted automatically. A lobby holds up to 12 people: 1 host and 11 viewers.
 
 ## 8. Privacy and security
 
@@ -122,7 +122,7 @@ Details: [protocol](protocol.md), section "Lobbies (Cloudflare relay)".
 ```powershell
 cd livesplit-coop\relay-cloudflare
 git pull
-npm ci
+npm ci --ignore-scripts
 npm run deploy
 ```
 

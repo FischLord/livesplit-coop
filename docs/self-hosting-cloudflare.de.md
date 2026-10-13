@@ -37,12 +37,12 @@ Diese Befehle in PowerShell ausführen:
 ```powershell
 git clone https://github.com/FischLord/livesplit-coop.git
 cd livesplit-coop\relay-cloudflare
-npm ci
+npm ci --ignore-scripts
 npx wrangler login
 npm run deploy
 ```
 
-`npx wrangler login` öffnet ein Browserfenster; dort anmelden und den Zugriff erlauben. `npm run deploy` führt `wrangler deploy --env=""` aus.
+`npx wrangler login` öffnet ein Browserfenster; dort anmelden und den Zugriff erlauben. `npm run deploy` führt `wrangler deploy --env=""` aus. `--ignore-scripts` verhindert, dass die installierten Pakete eigene Installationsskripte ausführen; der Relay braucht sie nicht.
 
 Optional: Vor dem Deployment kann in `wrangler.jsonc` der Wert `"name"` geändert werden (Standard: `livesplit-coop-relay`). Der Name wird Teil der URL, deshalb am besten gleich passend wählen.
 
@@ -98,13 +98,13 @@ Cloudflare ändert seine Zahlen von Zeit zu Zeit. Die folgenden Werte gelten Sta
 
 Die Zähler werden täglich um 00:00 UTC zurückgesetzt. Ist ein Limit erreicht, schlagen weitere Anfragen bis zum Zurücksetzen fehl. Der kostenlose Tarif berechnet nie automatisch Geld. Wer mehr braucht, kann den kostenpflichtigen Workers-Tarif nehmen, der ab 5 US-Dollar im Monat kostet.
 
-**Kapazitätsschätzung** (aus dem Verhalten der Komponente abgeleitet, nicht bei Cloudflare gemessen): Ein verbundener Host sendet etwa 4 Zeitaktualisierungen pro Sekunde, also rund 14.400 Nachrichten pro Stunde, was etwa 720 abgerechneten Durable-Object-Anfragen pro Stunde entspricht. Zuschauer kosten fast nichts: Empfangen ist kostenlos, und Beitreten ist eine einzelne Anfrage. Das Tagesbudget reicht also für ungefähr 130 Host-Stunden pro Tag, zum Beispiel:
+**Kapazitätsschätzung** (aus dem Verhalten der Komponente abgeleitet, nicht bei Cloudflare gemessen): Solange ein Host verbunden ist, sendet er alle 250 ms eine Zeitaktualisierung (4 pro Sekunde, auch bei gestoppter Zeit) und alle 5 Sekunden einen Ping auf Anwendungsebene. Das sind etwa 15.000 eingehende Nachrichten pro Stunde, also rund 750 abgerechnete Durable-Object-Anfragen pro Stunde. Jeder Zuschauer sendet nur alle 5 Sekunden einen Ping, etwa 36 abgerechnete Anfragen pro Stunde; Empfangen ist kostenlos. Eine Lobby mit Host und 5 Zuschauern kostet also etwa 940 Anfragen pro Stunde, eine volle (11 Zuschauer) etwa 1.150. Das Tagesbudget von 100.000 reicht damit für ungefähr:
 
-- etwa 5 Lobbys, die rund um die Uhr verbunden sind,
-- etwa 45 Lobbys für einen 3-stündigen Abend,
-- etwa 130 einstündige Sitzungen.
+- 130 Host-Stunden pro Tag bei Lobbys ohne Zuschauer,
+- etwa 100 Lobby-Stunden pro Tag mit je 5 Zuschauern,
+- etwa 85 Lobby-Stunden pro Tag mit vollen Lobbys, zum Beispiel 28 volle Lobbys für einen 3-stündigen Abend.
 
-Die Schätzung berücksichtigt die anwendungsseitigen Pings nicht (alle 5 Sekunden pro Client), die einige Prozent zusätzlich ausmachen. Ungenutzte Lobbys kosten nur wenige KB Speicher. Neue Lobbys sind durch `ROOMS_PER_DAY` und das Rate-Limit pro IP begrenzt. Lobbys, die 7 Tage lang nicht genutzt wurden, werden automatisch gelöscht. Eine Lobby fasst bis zu 12 Personen: 1 Host und 11 Zuschauer.
+Beitreten, Verlassen und die öffentliche Liste kosten jeweils nur wenige Anfragen und fallen kaum ins Gewicht. Ungenutzte Lobbys kosten nur wenige KB Speicher. Neue Lobbys sind durch `ROOMS_PER_DAY` und das Rate-Limit pro IP begrenzt. Lobbys, die 7 Tage lang nicht genutzt wurden, werden automatisch gelöscht. Eine Lobby fasst bis zu 12 Personen: 1 Host und 11 Zuschauer.
 
 ## 8. Datenschutz und Sicherheit
 
@@ -122,7 +122,7 @@ Details: [Protokoll](protocol.md), Abschnitt „Lobbies (Cloudflare-Relay)“.
 ```powershell
 cd livesplit-coop\relay-cloudflare
 git pull
-npm ci
+npm ci --ignore-scripts
 npm run deploy
 ```
 

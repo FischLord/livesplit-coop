@@ -4,7 +4,7 @@ The local `0.1.0-beta.3+diagnostics.1` build retains protocol v3 and works with 
 
 Logs start when a Coop component loads. They are JSON Lines files in `Logs/Coop` beside that LiveSplit executable (the component's parent directory). If that directory is not writable, storage falls back to `%LOCALAPPDATA%/LiveSplit.Coop/Logs`.
 
-Right-click the timer and choose **Coop: Export diagnostics...** to save the retained logs as one `.jsonl` file. Export includes earlier sessions still retained in that log directory, so it also works after a restart. Host and viewer installations normally have separate log directories. Nothing is uploaded automatically.
+Right-click the timer, choose **Coop...**, open **Advanced** and click **Export diagnostics...** to save the retained logs as one `.jsonl` file. Export includes earlier sessions still retained in that log directory, so it also works after a restart. Host and viewer installations normally have separate log directories. Nothing is uploaded automatically.
 
 Recorded data:
 - UTC and monotonic session timestamps, a random session/component/connection identifier, local diagnostic build, protocol, runtime and process architecture.
