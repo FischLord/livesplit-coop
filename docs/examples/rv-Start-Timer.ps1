@@ -40,8 +40,32 @@ function Sync-ViewerApp([string]$source,[string]$target) {
     }
     if($copied){Write-Host ('Viewer-Programm abgeglichen: '+$copied+' Dateien.')}
 }
+# Files from an internet-downloaded ZIP carry the Mark of the Web (Zone.Identifier stream); .NET Framework then refuses to
+# load the DLLs (0x80131515). Lift it for the whole timer folder (and the CMDs next to it) before anything is loaded.
+function Unblock-TimerFolder([string]$timerRoot) {
+    try {
+        $sentinels=@()
+        foreach($f in [IO.Directory]::EnumerateFiles($timerRoot,'*',[IO.SearchOption]::AllDirectories)) {
+            $ext=[IO.Path]::GetExtension($f).ToLowerInvariant()
+            if($ext -in '.dll','.exe','.ps1','.json','.cmd'){$sentinels+=$f}
+        }
+        $cmds=@(Get-ChildItem -LiteralPath (Split-Path -Parent $timerRoot) -Filter '*.cmd' -File -ErrorAction SilentlyContinue | ForEach-Object {$_.FullName})
+        $blocked=@(($sentinels+$cmds) | Where-Object {Get-Item -LiteralPath $_ -Stream Zone.Identifier -ErrorAction SilentlyContinue})
+        if(!$blocked.Count){return}
+        $count=0
+        foreach($f in (@(Get-ChildItem -LiteralPath $timerRoot -Recurse -File -ErrorAction SilentlyContinue)+$cmds)) {
+            $path=if($f -is [string]){$f}else{$f.FullName}
+            if(Get-Item -LiteralPath $path -Stream Zone.Identifier -ErrorAction SilentlyContinue){
+                Unblock-File -LiteralPath $path -ErrorAction SilentlyContinue
+                $count++
+            }
+        }
+        Write-Host ('Windows-Sperre fuer heruntergeladene Dateien aufgehoben: '+$count+' Dateien')
+    } catch {}
+}
 try {
     $root=Split-Path -Parent $PSScriptRoot
+    Unblock-TimerFolder $root
     $app=Join-Path $root ('Anwendung\'+$Role)
     $exe=Join-Path $app 'LiveSplit.exe'
     if(Get-Process LiveSplit -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe}) {
@@ -51,7 +75,7 @@ try {
     # Legacy updates of older packages (graph/category layouts, clipboard, diagnostics) must never replace this package's Coop DLL.
     # Apply-CoopLobbies.ps1 applies only their layout part and retires the pending DLL steps.
     & (Join-Path $PSScriptRoot 'Apply-CoopLobbies.ps1') -Role $Role
-    foreach($dll in @('LiveSplit.Core.dll','UpdateManager.dll','Components\LiveSplit.Coop.dll')){[void][Reflection.Assembly]::LoadFrom((Join-Path $app $dll))}
+    foreach($dll in @('LiveSplit.Core.dll','UpdateManager.dll','Components\LiveSplit.Coop.dll')){[void][Reflection.Assembly]::UnsafeLoadFrom((Join-Path $app $dll))}
     $pack=[LiveSplit.Coop.ProfilePack]::Find($app)
     if(!$pack){throw 'coop-profiles.json fehlt. Bitte das komplette Paket entpacken.'}
     $configPath=Join-Path $app 'settings.cfg'
