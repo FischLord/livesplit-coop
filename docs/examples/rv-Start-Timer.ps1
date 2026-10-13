@@ -4,6 +4,42 @@
     [switch]$PrepareOnly
 )
 $ErrorActionPreference='Stop'
+# Only the Host app ships in the package. The Viewer app is kept in sync from it on every start (both roles):
+# every file whose content differs is copied, nothing is ever deleted in the Viewer.
+# Personal files, logs and the Host-only autosplitter files are left out.
+function Sync-ViewerApp([string]$source,[string]$target) {
+    if(!(Test-Path -LiteralPath $source)){return}
+    [void][IO.Directory]::CreateDirectory($target)
+    $skipNames=@('settings.cfg','coop-local.json','rvthereyet.asl','asl-help')
+    $sha=[Security.Cryptography.SHA256]::Create()
+    $copied=0
+    foreach($file in [IO.Directory]::EnumerateFiles($source,'*',[IO.SearchOption]::AllDirectories)) {
+        $rel=$file.Substring($source.Length).TrimStart('\')
+        $parts=$rel.Split('\')
+        $name=$parts[$parts.Length-1].ToLowerInvariant()
+        if($parts[0] -eq 'Logs' -and $parts.Length -gt 1){continue}
+        if($name.EndsWith('.coop-lock')){continue}
+        if($parts.Length -eq 1 -and $skipNames -contains $name){continue}
+        if($parts.Length -eq 2 -and $parts[0] -eq 'Components' -and ($skipNames -contains $name -or $name.EndsWith('.asl'))){continue}
+        $dst=Join-Path $target $rel
+        $a=New-Object IO.FileInfo $file
+        $b=New-Object IO.FileInfo $dst
+        if($b.Exists -and $a.Length -eq $b.Length -and $a.LastWriteTimeUtc -eq $b.LastWriteTimeUtc){continue}
+        if($b.Exists -and $a.Length -eq $b.Length) {
+            $ha=[BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($file)))
+            $hb=[BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($dst)))
+            if($ha -eq $hb){continue}
+        }
+        try {
+            [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dst))
+            [IO.File]::Copy($file,$dst,$true)
+            $copied++
+        } catch {
+            Write-Host ('Hinweis: '+$rel+' im Viewer konnte nicht aktualisiert werden (ist der Viewer offen?).') -ForegroundColor Yellow
+        }
+    }
+    if($copied){Write-Host ('Viewer-Programm abgeglichen: '+$copied+' Dateien.')}
+}
 try {
     $root=Split-Path -Parent $PSScriptRoot
     $app=Join-Path $root ('Anwendung\'+$Role)
@@ -11,6 +47,7 @@ try {
     if(Get-Process LiveSplit -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe}) {
         throw 'Dieser Timer ist bereits offen.'
     }
+    Sync-ViewerApp (Join-Path $root 'Anwendung\Host') (Join-Path $root 'Anwendung\Viewer')
     # Legacy updates of older packages (graph/category layouts, clipboard, diagnostics) must never replace this package's Coop DLL.
     # Apply-CoopLobbies.ps1 applies only their layout part and retires the pending DLL steps.
     & (Join-Path $PSScriptRoot 'Apply-CoopLobbies.ps1') -Role $Role
