@@ -76,6 +76,8 @@ namespace LiveSplit.Coop {
             {"detail.tooLarge",new[]{"Run exceeds supported limits or contains unsupported metadata.","Der Run überschreitet die unterstützten Grenzen oder enthält nicht unterstützte Metadaten."}},
             {"viewer.autosplitterOn",new[]{"Viewer: turn off the autosplitter first. Right-click > Edit Splits > Deactivate, then try again.","Viewer: Zuerst den Autosplitter ausschalten. Rechtsklick > Splits bearbeiten > Deaktivieren, dann nochmal versuchen."}},
             {"viewer.autosplitterLayout",new[]{"Viewer: remove \"Scriptable Auto Splitter\" from this layout first (right-click > Edit Layout > select it > -), then try again.","Viewer: Zuerst \"Scriptable Auto Splitter\" aus diesem Layout entfernen (Rechtsklick > Layout bearbeiten > auswählen > -), dann nochmal versuchen."}},
+            {"server.missing",new[]{"No relay server set. Enter your group's relay address under Advanced, or set up your own (see the self-hosting guide).","Kein Relay-Server eingestellt. Trag unter Erweitert die Relay-Adresse deiner Gruppe ein oder richte einen eigenen ein (siehe Self-Hosting-Anleitung)."}},
+            {"server.invalid",new[]{"That is not a valid relay address (wss://…/coop).","Das ist keine gültige Relay-Adresse (wss://…/coop)."}},
             {"advanced.server",new[]{"Server","Server"}},
             {"advanced.inviteCode",new[]{"Invitation","Einladung"}},
             {"advanced.invite",new[]{"Join with invitation","Mit Einladungscode beitreten"}},

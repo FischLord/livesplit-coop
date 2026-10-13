@@ -21,6 +21,10 @@ namespace LiveSplit.Coop {
     // HTTP side of lobbies (POST/GET /lobbies on the relay behind a wss://host/coop address). Blocking; call off the UI thread.
     public static class LobbyClient {
         static readonly Regex KeyShape=new Regex("^[A-Za-z0-9_-]{32,256}$");
+        public static bool IsValidServer(string server) {
+            if(string.IsNullOrEmpty(server)) return false;
+            try { Endpoint(server,"/lobbies");return true; } catch(ArgumentException) { return false; } catch(UriFormatException) { return false; }
+        }
         public static Uri Endpoint(string server,string path) {
             new RelayConnection(server,"probe","host",new string('x',32)).Dispose(); // validates the address (wss, or ws on loopback)
             var uri=new Uri(server);

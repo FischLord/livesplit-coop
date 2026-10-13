@@ -5,7 +5,6 @@ namespace LiveSplit.Coop {
     // An invite carries everything a viewer needs in one pasteable line: lscoop:1:<server>/<room>#<viewer key>.
     // It is a credential like the key itself; it never contains the host key.
     public static class Invite {
-        public const string Community="wss://livesplit-coop-relay.janneck.workers.dev/coop";
         const string Prefix="lscoop:1:";
         static readonly Regex Shape=new Regex("^(wss?://[^/?#@\\s]+/coop)/([a-zA-Z0-9_-]{1,64})#([^\\s#]{32,256})$");
         public static string Format(string server,string room,string viewerKey) {

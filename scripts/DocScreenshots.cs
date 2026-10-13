@@ -11,7 +11,7 @@ using System.Windows.Forms;
 using LiveSplit.Coop;
 
 public static class DocScreenshots {
-    const string ExampleServer = "wss://livesplit-coop-relay.example.workers.dev/coop";
+    const string ExampleServer = "wss://your-relay.your-subdomain.workers.dev/coop";
     static WindowsFormsSynchronizationContext uiContext;
     static readonly List<string> uiErrors = new List<string>();
 
@@ -129,9 +129,17 @@ public static class DocScreenshots {
         Texts.German = german;
         string outDir = Path.Combine(dir, german ? "de" : "en");
 
+        // no relay set: the notice, Advanced open
+        var bare = new DocSession("host");
+        bare.server = "";
+        var f = Open(bare);
+        f.Show(); Pump(500);
+        Capture(f, Path.Combine(outDir, "coop-no-server.png"));
+        Done(f);
+
         // host window, nothing created yet
         var host = new DocSession("host");
-        var f = Open(host);
+        f = Open(host);
         f.Show(); Pump(300);
         Find<TextBox>(f, "lobbyName").Text = "team-night";
         Find<CheckBox>(f, "lobbyPublic").Checked = true;

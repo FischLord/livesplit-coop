@@ -20,7 +20,7 @@ namespace LiveSplit.Coop {
     public sealed class ProfilePack {
         public const string FileName="coop-profiles.json";
         public int version;
-        public string game,autosplitter,viewerLayout;
+        public string game,autosplitter,viewerLayout,server;
         public Dictionary<string,string> autosplitterSettings;
         public List<PackDimension> dimensions;
         public List<PackProfile> profiles;
@@ -52,6 +52,7 @@ namespace LiveSplit.Coop {
             Require(!string.IsNullOrEmpty(game),"game is missing");
             Require(autosplitter==null || Relative(autosplitter),"autosplitter must be a relative path");
             Require(viewerLayout==null || Relative(viewerLayout),"viewerLayout must be a relative path");
+            Require(string.IsNullOrEmpty(server) || LobbyClient.IsValidServer(server),"server must be a wss://host/coop address (ws:// only on loopback)");
             Require(dimensions!=null && dimensions.Count>0,"dimensions are missing");
             Require(dimensions.Select(d=>d.id).Distinct().Count()==dimensions.Count,"dimension ids must be unique");
             foreach(var d in dimensions) Require(!string.IsNullOrEmpty(d.id) && d.options!=null && d.options.Count>0 && d.options.All(o=>!string.IsNullOrEmpty(o.id) && !string.IsNullOrEmpty(o.label)),"dimension "+d.id+" needs options with id and label");

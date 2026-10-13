@@ -35,8 +35,9 @@ namespace LiveSplit.Coop {
             try {
                 string key=LocalState.Unprotect(Read(n,"ProtectedKey",""));
                 string room=Read(n,"Room","");
-                if(key.Length>=32 && room.Length>0)
-                    Legacy=new LegacyRoom { server=Read(n,"Address",Invite.Community),roomId=room,role=Role,key=key,inviteKey=LocalState.Unprotect(Read(n,"ProtectedInviteKey","")) };
+                string address=Read(n,"Address","");
+                if(key.Length>=32 && room.Length>0 && address.Length>0)
+                    Legacy=new LegacyRoom { server=address,roomId=room,role=Role,key=key,inviteKey=LocalState.Unprotect(Read(n,"ProtectedInviteKey","")) };
             } catch(CryptographicException) { } catch(FormatException) { }
         }
         public XmlNode SaveXml(XmlDocument doc) {

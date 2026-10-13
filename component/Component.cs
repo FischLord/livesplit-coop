@@ -19,7 +19,7 @@ using LiveSplit.UI.Components;
 namespace LiveSplit.Coop {
     public sealed class Factory : IComponentFactory {
         public string ComponentName { get { return "Coop Relay"; } }
-        public string Description { get { return "Share a host timer through the community relay or your own, without a VPN."; } }
+        public string Description { get { return "Share a host timer through a relay you run yourself, without a VPN."; } }
         public ComponentCategory Category { get { return ComponentCategory.Control; } }
         public string UpdateName { get { return ComponentName; } }
         public string XMLURL { get { return ""; } }
@@ -137,7 +137,7 @@ namespace LiveSplit.Coop {
         }
         static string Players(IRun run) { string value;return run.Metadata.VariableValueNames.TryGetValue("Number of Players",out value)?value:""; }
         public string Role { get { return settings.Role; } }
-        public string Server { get { return local.server ?? Invite.Community; } set { local.server=value;SaveLocal(); } }
+        public string Server { get { return !string.IsNullOrEmpty(local.server)?local.server:(Pack!=null && !string.IsNullOrEmpty(Pack.server)?Pack.server:""); } set { local.server=value;SaveLocal(); } }
         public LobbyState Lobby { get { return local.lobby!=null && local.lobby.role==Role?local.lobby:null; } }
         public bool Connected { get { return connection!=null && connection.Ready; } }
         public int Viewers { get { return connection==null?-1:connection.Viewers; } }

@@ -309,6 +309,36 @@ public static class LobbyTests {
             Check(legacy.invite!=null && legacy.lobby!=null,"valid invitation is handed to the session");
             w.Close();
         }
+        // Without a relay address the window explains it, opens Advanced and blocks create, join and listing.
+        int listCalls=0;
+        Func<string,List<LobbyInfo>> counting=s=>{ listCalls++;return new List<LobbyInfo>(); };
+        var noServer=new FakeSession{role="viewer",server=""};
+        using(var w=new CoopWindow(noServer,create,counting)) {
+            w.Show();Pump(()=>Shown(Find(w,"serverMissing")));
+            Check(Find(w,"serverMissing").Text==Texts.T("server.missing"),"missing server shows the server.missing text");
+            Pump(()=>w.ActiveControl==Find(w,"server"));Check(Shown(Find(w,"server")) && w.ActiveControl==Find(w,"server"),"Advanced opens and the server box has focus");
+            Check(!Find(w,"join").Enabled && !Find(w,"refresh").Enabled,"join and refresh are disabled without a server");
+            Find(w,"lobbyName").Text="rvgang";Click(Find(w,"join"));Click(Find(w,"refresh"));
+            Check(noServer.used==null && listCalls==0,"no join and no list call without a server");
+            Find(w,"server").Text="nonsense";
+            Pump(()=>Shown(Find(w,"serverInvalid")));
+            Check(Find(w,"serverInvalid").Text==Texts.T("server.invalid") && !Find(w,"join").Enabled && !Shown(Find(w,"serverMissing")),"an invalid address is explained and keeps join disabled");
+            Find(w,"server").Text="wss://valid.example/coop";
+            Check(Find(w,"join").Enabled && Find(w,"refresh").Enabled && !Shown(Find(w,"serverInvalid")) && !Shown(Find(w,"serverMissing")),"a valid address enables join and refresh");
+            Click(Find(w,"join"));Pump(()=>noServer.used!=null);
+            Check(noServer.used.server=="wss://valid.example/coop" && noServer.server=="wss://valid.example/coop","join uses and saves the entered server");
+            w.Close();
+        }
+        var noServerHost=new FakeSession{server=""};
+        using(var w=new CoopWindow(noServerHost,create,none)) {
+            w.Show();Pump(()=>Shown(Find(w,"serverMissing")));
+            Check(!Find(w,"create").Enabled,"create is disabled without a server");
+            Find(w,"lobbyName").Text="rvgang";Click(Find(w,"create"));
+            Check(noServerHost.used==null,"no create without a server");
+            Find(w,"server").Text="wss://valid.example/coop";
+            Check(Find(w,"create").Enabled,"create is enabled once a valid server is entered");
+            w.Close();
+        }
         // A session that cannot save shows its warning permanently, not only after creating.
         var warned=new FakeSession();
         using(var w=new CoopWindow(warned,create,none)) {

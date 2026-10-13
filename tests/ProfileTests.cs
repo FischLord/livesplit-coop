@@ -82,6 +82,15 @@ public static class ProfileTests {
             string path=Path.Combine(work,"bad.json");File.WriteAllText(path,bad);
             Throws<InvalidDataException>(()=>ProfilePack.Load(path),"invalid pack is rejected");
         }
+        foreach(var server in new[]{"http://relay.example/coop","wss://relay.example/other","ws://relay.example/coop","wss://relay.example/coop?x=1","relay.example"}) {
+            string path=Path.Combine(work,"bad-server.json");File.WriteAllText(path,PackJson.Replace("\"version\": 1,","\"version\": 1, \"server\": \""+server+"\","));
+            Throws<InvalidDataException>(()=>ProfilePack.Load(path),"pack with invalid server is rejected: "+server);
+        }
+        foreach(var server in new[]{"","wss://relay.example/coop","ws://127.0.0.1:8788/coop"}) {
+            string path=Path.Combine(work,"good-server.json");File.WriteAllText(path,PackJson.Replace("\"version\": 1,","\"version\": 1, \"server\": \""+server+"\","));
+            Check(ProfilePack.Load(path).server==server,"pack server accepted: "+server);
+        }
+        Check(pack.server==null,"a pack without server has none");
     }
     static void PreparerTests(string work) {
         string root=MakePack(work,"prep");
@@ -141,6 +150,19 @@ public static class ProfileTests {
             Check(component.ProfileLabel()=="Solo / Finish Only","host badge shows the pack label of the loaded splits");
             Check(component.ProfileText=="Solo / Finish Only","the window gets the profile label");
         }
+        // Server resolution: LocalState, else the pack, else empty.
+        string serverPath=Path.Combine(work,"component-server.json");if(File.Exists(serverPath)) File.Delete(serverPath);
+        string packFile=Path.Combine(work,"server-pack.json");
+        File.WriteAllText(Path.Combine(root,"coop-profiles.json"),PackJson.Replace("\"version\": 1,","\"version\": 1, \"server\": \"wss://pack.example/coop\","));
+        var serverPack=ProfilePack.Load(Path.Combine(root,"coop-profiles.json"));
+        File.WriteAllText(Path.Combine(root,"coop-profiles.json"),PackJson);
+        using(var component=new CoopComponent(NewState(),serverPath,null)) Check(component.Server=="","no local server and no pack gives no server");
+        using(var component=new CoopComponent(NewState(),serverPath,pack)) Check(component.Server=="","a pack without server gives no server");
+        using(var component=new CoopComponent(NewState(),serverPath,serverPack)) {
+            Check(component.Server=="wss://pack.example/coop","the pack's server is used when nothing is saved");
+            component.Server="wss://mine.example/coop";
+        }
+        using(var component=new CoopComponent(NewState(),serverPath,serverPack)) Check(component.Server=="wss://mine.example/coop","the saved server overrides the pack");
         var other=NewState();other.Run.Metadata.VariableValueNames["Number of Players"]="Trio";
         using(var component=new CoopComponent(other,local,null)) {
             component.SetSettings(XmlRole("host"));

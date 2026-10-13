@@ -43,6 +43,8 @@ namespace LiveSplit.Coop {
         readonly Label note=new Label { Name="note",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.DimGray };
         readonly Label saveWarning=new Label { Name="saveWarning",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.Firebrick,Visible=false };
         readonly Label message=new Label { Name="message",AutoSize=true,MaximumSize=new Size(480,0),Margin=new Padding(0,6,0,0) };
+        readonly Label serverMissing=new Label { Name="serverMissing",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.Firebrick,Font=new Font("Segoe UI",9F,FontStyle.Bold),Visible=false };
+        readonly Label serverInvalid=new Label { Name="serverInvalid",AutoSize=true,MaximumSize=new Size(480,0),ForeColor=Color.Firebrick,Visible=false };
         readonly TextBox name=new TextBox { Name="lobbyName",Width=230,MaxLength=32 };
         readonly TextBox password=new TextBox { Name="lobbyPassword",Width=230,MaxLength=128,UseSystemPasswordChar=true };
         readonly CheckBox isPublic=new CheckBox { Name="lobbyPublic",AutoSize=true };
@@ -60,7 +62,7 @@ namespace LiveSplit.Coop {
             StartPosition=FormStartPosition.CenterParent;ShowInTaskbar=false;MinimizeBox=MaximizeBox=false;
             AutoScaleMode=AutoScaleMode.Dpi;AutoSize=true;AutoSizeMode=AutoSizeMode.GrowAndShrink;MinimumSize=new Size(530,0);
             Controls.Add(body);
-            body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);body.Controls.Add(note);body.Controls.Add(saveWarning);
+            body.Controls.Add(Heading("section.lobby"));body.Controls.Add(status);body.Controls.Add(note);body.Controls.Add(saveWarning);body.Controls.Add(serverMissing);
             BuildCurrent();
             if(session.Role=="host") BuildCreate(); else BuildJoin();
             body.Controls.Add(current);body.Controls.Add(createPanel);body.Controls.Add(joinPanel);body.Controls.Add(message);
@@ -68,7 +70,7 @@ namespace LiveSplit.Coop {
             var close=new Button { Name="close",Text=Texts.T("window.close"),AutoSize=true,MinimumSize=new Size(100,28),DialogResult=DialogResult.OK,Margin=new Padding(0,12,0,0) };
             CancelButton=close;body.Controls.Add(close);
             refresh.Tick+=(s,e)=>Sync();
-            Shown+=(s,e)=>{ Sync();if(session.Role!="host" && session.Lobby==null) LoadList();refresh.Start(); };
+            Shown+=(s,e)=>{ Sync();if(!ServerOk) { ActiveControl=server;server.Focus(); } else if(session.Role!="host" && session.Lobby==null) LoadList();refresh.Start(); };
             FormClosed+=(s,e)=>refresh.Stop();
         }
         static FlowLayoutPanel Stack() { return new FlowLayoutPanel { AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false,Margin=new Padding(0,4,0,4) }; }
@@ -107,23 +109,35 @@ namespace LiveSplit.Coop {
         }
         void BuildAdvanced() {
             var toggle=new LinkLabel { Name="advancedToggle",Text="+ "+Texts.T("section.advanced"),AutoSize=true,Margin=new Padding(0,10,0,2) };
-            advanced.Visible=false;
+            advanced.Visible=session.Server.Length==0;if(advanced.Visible) toggle.Text="- "+Texts.T("section.advanced");
             toggle.LinkClicked+=(s,e)=>{ advanced.Visible=!advanced.Visible;toggle.Text=(advanced.Visible?"- ":"+ ")+Texts.T("section.advanced"); };
-            server.Text=session.Server;server.Leave+=(s,e)=>ApplyServer();
-            advanced.Controls.Add(Row(Caption("advanced.server"),server));
+            server.Text=session.Server;server.Leave+=(s,e)=>ServerLeft();server.TextChanged+=(s,e)=>UpdateServerState();
+            serverMissing.Text=Texts.T("server.missing");serverInvalid.Text=Texts.T("server.invalid");
+            advanced.Controls.Add(Row(Caption("advanced.server"),server));advanced.Controls.Add(serverInvalid);
             if(session.Role!="host") {
                 var use=Action("joinInvite","advanced.invite");use.Click+=(s,e)=>JoinInvite();
                 advanced.Controls.Add(Row(Caption("advanced.inviteCode"),invite));advanced.Controls.Add(use);
             }
             var diagnostics=Action("diagnostics","advanced.diagnostics");diagnostics.Click+=(s,e)=>session.ExportDiagnostics(this);
             advanced.Controls.Add(diagnostics);
-            body.Controls.Add(toggle);body.Controls.Add(advanced);
+            body.Controls.Add(toggle);body.Controls.Add(advanced);UpdateServerState();
         }
         string ApplyServer() {
             string value=server.Text.Trim();
-            if(value.Length==0) { value=Invite.Community;server.Text=value; }
-            if(value!=session.Server) session.Server=value;
+            if(LobbyClient.IsValidServer(value) && value!=session.Server) session.Server=value;
             return value;
+        }
+        bool ServerOk { get { return LobbyClient.IsValidServer(server.Text.Trim()); } }
+        void ServerLeft() {
+            string before=session.Server;
+            ApplyServer();
+            if(ServerOk && session.Server!=before && session.Role!="host" && session.Lobby==null) LoadList();
+        }
+        // Without a valid relay address nothing can be created, joined or listed.
+        void UpdateServerState() {
+            bool ok=ServerOk;string text=server.Text.Trim();
+            serverMissing.Visible=text.Length==0;serverInvalid.Visible=text.Length>0 && !ok;
+            foreach(var n in new[] { "create","join","refresh" }) { var c=Find(n);if(c!=null) c.Enabled=ok; }
         }
         void Sync() {
             // The component forgets a rejected join by itself; the window only explains what happened.
@@ -132,6 +146,7 @@ namespace LiveSplit.Coop {
                 else if(session.Connected) { pendingJoin=busy=false;message.Text=""; }
                 else if(!slowShown && unchecked(Environment.TickCount-pendingSince)>=SlowJoinMs) { slowShown=true;message.ForeColor=SystemColors.GrayText;message.Text=Texts.T("lobby.slow"); }
             }
+            UpdateServerState();
             bool has=session.Lobby!=null;
             current.Visible=has;createPanel.Visible=!has && session.Role=="host";joinPanel.Visible=!has && session.Role!="host";
             if(!busy) status.Text=session.StatusLine;
@@ -159,7 +174,7 @@ namespace LiveSplit.Coop {
             }
         }
         async Task CreateAsync() {
-            if(busy) return;
+            if(busy || !ServerOk) return;
             message.Text="";
             string lobbyName=LobbyKey.Normalize(name.Text);
             if(lobbyName==null) { Report(Texts.T("lobby.invalidName"),true);return; }
@@ -184,7 +199,7 @@ namespace LiveSplit.Coop {
             return Texts.T(copied?"lobby.createdOpen":"lobby.createdOpenNoCopy",lobby);
         }
         async Task JoinAsync() {
-            if(busy) return;
+            if(busy || !ServerOk) return;
             message.Text="";
             string lobbyName=LobbyKey.Normalize(name.Text);
             if(lobbyName==null) { Report(Texts.T("lobby.invalidName"),true);return; }
@@ -218,6 +233,7 @@ namespace LiveSplit.Coop {
         void StartPending() { busy=pendingJoin=true;slowShown=false;pendingSince=Environment.TickCount; }
         async void LoadList() {
             string target=ApplyServer();
+            if(!ServerOk) { lobbies.Items.Clear();return; }
             lobbies.Items.Clear();lobbies.Items.Add(new ListViewItem(Texts.T("lobby.loading")));
             try {
                 var found=await Task.Run(()=>list(target));
