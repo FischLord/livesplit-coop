@@ -52,7 +52,7 @@ npm start
 
 The key generator creates `rooms.json` and refuses to overwrite an existing file. Alternatively start with `ROOM_CREATION=1` to let clients create rooms via `POST /rooms` (see [protocol](docs/protocol.md)); such rooms live in memory and expire after seven idle days. Keep `hostKey` private; give teammates only `viewerKey`. This file is gitignored. The local endpoint is `ws://127.0.0.1:8787/coop`; plain `ws://` is accepted by the component **only for loopback development**. Remote players use WSS through a TLS reverse proxy, or direct TLS on a separate port using `compose.tls.yaml` and `TLS_PEM_FILE`.
 
-For Linux/container deployment, see [deployment](docs/deployment.md). Docker is optional; the relay can also run as a restricted service account. No hosted account, third-party relay or VPN is used.
+For Linux/container deployment, see [deployment](docs/deployment.md). Windows users who want their own group relay without a server can follow [Run your own relay on Cloudflare](docs/self-hosting-cloudflare.md) ([Deutsch](docs/self-hosting-cloudflare.de.md)). Docker is optional; the relay can also run as a restricted service account. No hosted account, third-party relay or VPN is used.
 
 ## Verify
 
@@ -89,6 +89,6 @@ For an owned external deployment, the native and trio scripts accept `-RelayAddr
 - The component follows state directly and does not replay local timer-control events. Other plugins that depend on those events need separate compatibility testing.
 - Use trusted teammates and a TLS endpoint. A view key is access to the room's timing data, not a user account. The prototype has no per-person revocation; rotate the room key instead.
 
-[Deutsche Anleitung](docs/setup.de.md) · [Protocol](docs/protocol.md) · [Deployment](docs/deployment.md) · [License and provenance](THIRD_PARTY.md)
+[Deutsche Anleitung](docs/setup.de.md) · [Run your own relay (Cloudflare)](docs/self-hosting-cloudflare.md) · [Eigenen Relay betreiben](docs/self-hosting-cloudflare.de.md) · [Protocol](docs/protocol.md) · [Deployment](docs/deployment.md) · [License and provenance](THIRD_PARTY.md)
 
 For beta feedback, open an issue with client/relay versions, host/viewer role, timing method, expected behavior and reproducible steps. Remove access keys and private room data from screenshots/logs. See [release notes](docs/releases/v0.1.0-beta.1.md).

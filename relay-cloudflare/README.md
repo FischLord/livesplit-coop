@@ -2,6 +2,8 @@
 
 The same protocol v3 relay as `relay/`, running as a Cloudflare Worker with one Durable Object per room. Players install nothing extra: LiveSplit with `LiveSplit.Coop.dll` connects to `wss://<name>.<account>.workers.dev/coop`. Wrangler below is only the operator's deploy tool.
 
+Step-by-step guide for Windows users who want their own relay: [Run your own relay on Cloudflare](../docs/self-hosting-cloudflare.md) ([Deutsch](../docs/self-hosting-cloudflare.de.md)).
+
 ## Deploy (operator, once)
 
 ```sh
